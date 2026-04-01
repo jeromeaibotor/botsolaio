@@ -1,1028 +1,1055 @@
 //+------------------------------------------------------------------+
 //|                                         GoldAI_ClaudeBot.mq5     |
-//|          XAUUSD Trading Bot powered by Claude AI (Haiku)         |
-//|                               Version 2.0 - 2025                 |
+//|       XAUUSD AI Scalp/Swing Bot - Claude Haiku v3.0 ULTIMATE     |
+//|                  Multi-position | Exponential Lots | Full Mgmt    |
 //+------------------------------------------------------------------+
 //
-// SETUP INSTRUCTIONS:
-// 1. In MetaTrader 5: Tools > Options > Expert Advisors
-// 2. Enable "Allow WebRequest for listed URL"
-// 3. Add URL: https://api.anthropic.com
-// 4. Fill in your Claude API key in InpApiKey parameter
-// 5. Attach to XAUUSD M1 chart
+// SETUP:
+// 1. Tools > Options > Expert Advisors > Allow WebRequest
+//    Add: https://api.anthropic.com
+// 2. Renseigner InpApiKey avec votre clé Anthropic
+// 3. Attacher sur XAUUSD M1
+// 4. Activer "Algo Trading" (bouton vert MT5)
 //
-#property copyright "GoldAI Bot - Claude Haiku Powered"
-#property version   "2.00"
-#property description "XAUUSD AI Trading Bot using Claude Haiku"
+#property copyright "GoldAI Bot v3.0 - Claude Haiku ULTIMATE"
+#property version   "3.00"
+#property description "XAUUSD Scalp/Swing AI Bot | 8 positions | Exp Lots | Portfolio Mgmt"
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 
-//--- Input Parameters
+//=== API ===
 input group "=== API Configuration ==="
-input string   InpApiKey           = "sk-ant-YOUR-KEY-HERE";  // Anthropic API Key
-input string   InpModel            = "claude-haiku-4-5-20251001"; // Claude Model
-input int      InpAnalysisInterval = 12;              // Analysis interval (seconds)
+input string   InpApiKey            = "sk-ant-YOUR-KEY-HERE"; // Cle API Anthropic
+input string   InpModel             = "claude-haiku-4-5-20251001"; // Modele Claude
+input int      InpAnalysisInterval  = 12;   // Intervalle analyse (secondes)
 
-input group "=== Risk Management ==="
-input double   InpRiskPercent       = 1.0;            // Base risk per trade (% balance)
-input double   InpMaxRiskPercent    = 2.5;            // Max risk at 100% confidence
-input double   InpMinConfidence     = 55;             // Minimum confidence to trade (0-100)
-input int      InpMaxPositions      = 3;              // Max simultaneous positions
-input int      InpMaxSpreadPoints   = 80;             // Max spread in points
+//=== RISK ===
+input group "=== Risk & Lot Management ==="
+input double   InpBaseLot           = 0.01; // Lot de base (confidence minimale)
+input double   InpMaxLot            = 2.0;  // Lot maximum absolu
+input double   InpMaxRiskPct        = 2.0;  // Risque max par trade (% balance)
+input bool     InpExponentialLots   = true; // Lots exponentiels selon confiance
+input double   InpExpBase           = 2.2;  // Base exponentielle (2.2 = agressif)
+input double   InpMinConfidence     = 55;   // Confiance minimale pour trader
+input int      InpMaxPositions      = 8;    // Positions simultanees max
+input int      InpMaxSpreadPoints   = 80;   // Spread max en points
 
+//=== SL/TP ===
 input group "=== Stop Loss / Take Profit ==="
-input int      InpDefaultSL         = 30;             // Default SL in pips
-input int      InpDefaultTP         = 60;             // Default TP in pips (2:1 R/R)
-input bool     InpUseClaudeSLTP     = true;           // Use Claude SL/TP suggestions
-input double   InpMinSLPips         = 15;             // Minimum SL distance (pips)
-input double   InpMaxSLPips         = 80;             // Maximum SL distance (pips)
+input int      InpDefaultSL         = 25;   // SL par defaut (pips)
+input int      InpDefaultTP         = 45;   // TP par defaut (pips)
+input bool     InpUseClaudeSLTP     = true; // Utiliser SL/TP de Claude
+input double   InpMinSLPips         = 10;   // SL minimum (pips scalp)
+input double   InpMaxSLPips         = 80;   // SL maximum (pips)
 
+//=== TRAILING ===
 input group "=== Trailing Stop & Break-Even ==="
-input bool     InpUseTrailingStop   = true;           // Enable adaptive trailing stop
-input int      InpTrailingStart     = 20;             // Activate trailing at (pips profit)
-input int      InpTrailingStep      = 15;             // Trailing stop distance (pips)
-input bool     InpUseBreakEven      = true;           // Enable break-even
-input int      InpBreakEvenAt       = 15;             // Move to break-even at (pips profit)
-input int      InpBreakEvenBonus    = 3;              // Break-even buffer (pips above entry)
+input bool     InpUseTrailing       = true; // Trailing stop adaptatif
+input int      InpTrailingStart     = 18;   // Activer trailing apres (pips)
+input int      InpTrailingStep      = 12;   // Distance trailing (pips)
+input bool     InpUseBreakEven      = true; // Break-even
+input int      InpBreakEvenAt       = 12;   // Break-even a (pips profit)
+input int      InpBreakEvenBonus    = 2;    // Bonus BE (pips au-dessus entree)
 
+//=== PORTFOLIO MGMT ===
+input group "=== Portfolio Management (Claude) ==="
+input bool     InpCloseOnSignalFlip = true; // Fermer positions contraires sur signal fort
+input bool     InpAllowHedge        = false;// Autoriser hedging (BUY+SELL simultane)
+input double   InpMaxLossToClose    = -50;  // PnL seuil fermeture position perdante ($)
+input bool     InpCloseLosersOnSig  = true; // Fermer perdantes sur signal opposé fort
+input int      InpMinConfToCloseBad = 80;   // Confiance min pour forcer fermeture
+
+//=== SESSIONS ===
 input group "=== Market Sessions ==="
-input bool     InpTradeSydney       = true;           // Trade Sydney session
-input bool     InpTradeTokyo        = true;           // Trade Tokyo session
-input bool     InpTradeLondon       = true;           // Trade London session
-input bool     InpTradeNewYork      = true;           // Trade New York session
-input bool     InpTradeOverlap      = true;           // Trade session overlaps (high vol)
+input bool     InpTradeSydney       = true;
+input bool     InpTradeTokyo        = true;
+input bool     InpTradeLondon       = true;
+input bool     InpTradeNewYork      = true;
 
+//=== EA ===
 input group "=== EA Settings ==="
-input int      InpMagicNumber       = 20250401;       // Magic number
-input bool     InpEnableLogging     = true;           // Detailed logging
-input bool     InpShowDashboard     = true;           // Show chart dashboard
+input int      InpMagicNumber       = 20250401;
+input bool     InpEnableLogging     = true;
+input bool     InpShowDashboard     = true;
 
-//--- Global Objects
+//--- Objects
 CTrade         g_trade;
 CPositionInfo  g_position;
 
-//--- Global State
-datetime       g_lastAnalysisTime  = 0;
-string         g_lastAction        = "HOLD";
-int            g_lastConfidence    = 0;
-double         g_lastSLPips        = 30;
-double         g_lastTPPips        = 60;
-string         g_lastReasoning     = "";
-int            g_totalAnalyses     = 0;
-int            g_totalTrades       = 0;
-double         g_totalPnL          = 0;
-double         g_pipSize           = 0.1; // XAUUSD: 1 pip = $0.1
-int            g_apiErrors         = 0;
+//--- State
+datetime g_lastAnalysisTime  = 0;
+string   g_lastAction        = "HOLD";
+int      g_lastConfidence    = 0;
+double   g_lastSLPips        = 25;
+double   g_lastTPPips        = 45;
+string   g_lastReasoning     = "";
+bool     g_lastCloseLosers   = false;
+bool     g_lastAddWinner     = false;
+int      g_totalAnalyses     = 0;
+int      g_totalTrades       = 0;
+double   g_sessionPnL        = 0;
+double   g_totalPnL          = 0;
+int      g_winCount          = 0;
+int      g_lossCount         = 0;
+double   g_pipSize           = 0.1;  // XAUUSD 1 pip = 0.1
+int      g_apiErrors         = 0;
+double   g_peakEquity        = 0;
+double   g_maxDrawdown       = 0;
 
 
 //+------------------------------------------------------------------+
-//| Expert initialization function                                     |
+//| OnInit                                                             |
 //+------------------------------------------------------------------+
 int OnInit()
 {
    g_trade.SetMagicNumber(InpMagicNumber);
    g_trade.SetDeviationInPoints(30);
    g_trade.SetTypeFilling(ORDER_FILLING_FOK);
+   g_pipSize  = 0.1;
+   g_peakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
 
-   // XAUUSD pip = 0.1 price unit
-   g_pipSize = 0.1;
+   if(StringFind(_Symbol,"XAU")<0 && StringFind(_Symbol,"GOLD")<0)
+      Print("WARNING: EA optimise pour XAUUSD. Symbole actuel: ", _Symbol);
 
-   if(StringFind(_Symbol, "XAU") < 0 && StringFind(_Symbol, "GOLD") < 0)
-      Print("WARNING: EA optimized for XAUUSD. Current: ", _Symbol);
-
-   Print("========================================");
-   Print("  GoldAI Claude Bot v2.0 - STARTED");
-   Print("========================================");
-   Print("Model     : ", InpModel);
-   Print("Interval  : ", InpAnalysisInterval, " seconds");
-   Print("Risk      : ", InpRiskPercent, "% - ", InpMaxRiskPercent, "% (confidence-scaled)");
-   Print("MinConf   : ", InpMinConfidence, "%");
-   Print("Trailing  : ", InpUseTrailingStop ? "ON" : "OFF");
-   Print("BreakEven : ", InpUseBreakEven ? "ON" : "OFF");
-   Print("Sessions  : ",
-      (InpTradeSydney  ? "Sydney " : ""),
-      (InpTradeTokyo   ? "Tokyo " : ""),
-      (InpTradeLondon  ? "London " : ""),
-      (InpTradeNewYork ? "New York " : ""));
-   Print("IMPORTANT : Add https://api.anthropic.com to MT5 Allowed URLs");
-   Print("========================================");
+   Print("========================================================");
+   Print("   GoldAI Claude Bot v3.0 ULTIMATE - STARTED");
+   Print("========================================================");
+   Print("Model      : ", InpModel);
+   Print("Interval   : ", InpAnalysisInterval, "s");
+   Print("Lots       : ", InpExponentialLots ? "EXPONENTIELS" : "Lineaires",
+         " base=", InpBaseLot, " max=", InpMaxLot);
+   Print("MaxPos     : ", InpMaxPositions, " | MinConf: ", InpMinConfidence, "%");
+   Print("Trailing   : ", InpUseTrailing ? "ON" : "OFF",
+         " | BE: ", InpUseBreakEven ? "ON" : "OFF");
+   Print("Portfolio  : CloseLosers=", InpCloseLosersOnSig ? "ON" : "OFF",
+         " | Hedge=", InpAllowHedge ? "ON" : "OFF");
+   Print("========================================================");
+   Print("IMPORTANT: Ajouter https://api.anthropic.com aux URLs autorises MT5");
 
    EventSetTimer(1);
-   return(INIT_SUCCEEDED);
+   return INIT_SUCCEEDED;
 }
 
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                   |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
    EventKillTimer();
    Comment("");
-   Print("=== GoldAI Bot STOPPED ===");
-   Print("Analyses: ", g_totalAnalyses, " | Trades: ", g_totalTrades, " | Net PnL: $", DoubleToString(g_totalPnL, 2));
+   double winRate = (g_winCount + g_lossCount) > 0
+      ? (double)g_winCount / (g_winCount + g_lossCount) * 100.0 : 0;
+   Print("========================================================");
+   Print("   GoldAI Bot STOPPED");
+   Print("   Analyses: ", g_totalAnalyses, " | Trades: ", g_totalTrades);
+   Print("   Win: ", g_winCount, " | Loss: ", g_lossCount,
+         " | WinRate: ", DoubleToString(winRate, 1), "%");
+   Print("   Session PnL: $", DoubleToString(g_sessionPnL, 2));
+   Print("   Total PnL  : $", DoubleToString(g_totalPnL, 2));
+   Print("   Max Drawdown: ", DoubleToString(g_maxDrawdown, 2), "%");
+   Print("========================================================");
 }
 
 //+------------------------------------------------------------------+
-//| Timer function - manages trailing/BE on every second              |
+//| Timer: trailing/BE chaque seconde + dashboard                     |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   if(InpUseTrailingStop || InpUseBreakEven)
-      ManagePositions();
-   UpdateDashboard();
+   if(InpUseTrailing || InpUseBreakEven) ManagePositions();
+   TrackDrawdown();
+   if(InpShowDashboard) UpdateDashboard();
 }
 
 //+------------------------------------------------------------------+
-//| Expert tick function                                               |
+//| OnTick: cycle principal                                            |
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check API call interval
-   datetime currentTime = TimeCurrent();
-   if(currentTime - g_lastAnalysisTime < InpAnalysisInterval) return;
-   g_lastAnalysisTime = currentTime;
+   datetime now = TimeCurrent();
+   if(now - g_lastAnalysisTime < InpAnalysisInterval) return;
+   g_lastAnalysisTime = now;
 
-   // Trade conditions check
    if(!IsTradeAllowed()) return;
 
-   long spreadPoints = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   if(spreadPoints > InpMaxSpreadPoints)
+   long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if(spread > InpMaxSpreadPoints)
    {
       if(InpEnableLogging)
-         Print("[SKIP] Spread too high: ", spreadPoints, " pts (max=", InpMaxSpreadPoints, ")");
+         Print("[SKIP] Spread=", spread, " pts > max=", InpMaxSpreadPoints);
       return;
    }
 
    if(!IsSessionAllowed())
    {
-      if(InpEnableLogging)
-         Print("[SKIP] Outside allowed trading sessions. Current: ", GetCurrentSession());
+      if(InpEnableLogging) Print("[SKIP] Hors sessions. Session: ", GetCurrentSession());
       return;
    }
 
-   // Build market context
    string marketData = BuildMarketData();
 
-   // Query Claude Haiku
    if(InpEnableLogging)
-      Print("[API] Sending analysis request #", g_totalAnalyses + 1, " | Session: ", GetCurrentSession());
+      Print("[API] Requete #", g_totalAnalyses+1, " | Session: ", GetCurrentSession(),
+            " | Positions: ", CountPositions(), "/", InpMaxPositions);
 
-   bool success = QueryClaude(marketData);
+   bool ok = QueryClaude(marketData);
    g_totalAnalyses++;
 
-   if(!success)
-   {
-      g_apiErrors++;
-      Print("[ERROR] Claude query failed (total errors: ", g_apiErrors, ")");
-      return;
-   }
-
+   if(!ok) { g_apiErrors++; return; }
    g_apiErrors = 0;
 
    Print("[SIGNAL] ", g_lastAction,
-         " | Confidence: ", g_lastConfidence, "%",
-         " | SL: ", g_lastSLPips, " pips",
-         " | TP: ", g_lastTPPips, " pips",
+         " conf=", g_lastConfidence, "%",
+         " SL=", g_lastSLPips, "p TP=", g_lastTPPips, "p",
          " | ", g_lastReasoning);
 
-   // Execute trade if signal is strong enough
+   // 1. Portfolio management: fermeture intelligente
+   ManagePortfolio();
+
+   // 2. Ouverture si signal assez fort
    if(g_lastAction != "HOLD" && g_lastConfidence >= InpMinConfidence)
    {
-      int currentPositions = CountPositions();
-      if(currentPositions < InpMaxPositions)
-      {
+      if(CountPositions() < InpMaxPositions)
          ExecuteSignal();
-      }
       else
-      {
-         if(InpEnableLogging)
-            Print("[SKIP] Max positions reached (", currentPositions, "/", InpMaxPositions, ")");
-      }
+         Print("[SKIP] Positions max atteint (", InpMaxPositions, "/", InpMaxPositions, ")");
    }
 }
 
 
 //+------------------------------------------------------------------+
-//| Build comprehensive market data string for Claude                  |
+//| BuildMarketData: analyse profonde multi-timeframe                  |
 //+------------------------------------------------------------------+
 string BuildMarketData()
 {
-   string data = "";
    MqlDateTime dt;
    TimeToStruct(TimeGMT(), dt);
-   string timeStr = StringFormat("%04d-%02d-%02d %02d:%02d UTC",
-      dt.year, dt.mon, dt.day, dt.hour, dt.min);
+   string ts = StringFormat("%04d-%02d-%02d %02d:%02d:%02d UTC",
+      dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
 
-   double bid    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double ask    = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double spread = ask - bid;
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-   int    openPos  = CountPositions();
-   double drawdown = balance > 0 ? (balance - equity) / balance * 100.0 : 0;
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bal   = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
+   double marg  = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   int    nPos  = CountPositions();
+   double floatPL = eq - bal;
 
-   //--- Header
-   data += "=== XAUUSD MARKET ANALYSIS ===\n";
-   data += "Time: " + timeStr + " | Session: " + GetCurrentSession() + "\n";
-   data += StringFormat("Account: Balance=%.2f Equity=%.2f FreeMargin=%.2f Drawdown=%.1f%%\n",
-      balance, equity, freeMargin, drawdown);
-   data += StringFormat("Price: Bid=%.2f Ask=%.2f Spread=%.2f\n", bid, ask, spread);
-   data += StringFormat("OpenPositions: %d/%d\n\n", openPos, InpMaxPositions);
+   string d = "";
+   d += "=== XAUUSD SCALP ANALYSIS v3 ===\n";
+   d += "Time: " + ts + " | Session: " + GetCurrentSession() + "\n";
+   d += StringFormat("Account: Bal=%.2f Eq=%.2f FreeMargin=%.2f FloatPL=%.2f\n",
+      bal, eq, marg, floatPL);
+   d += StringFormat("Price: Bid=%.2f Ask=%.2f Spread=%.2fpips\n",
+      bid, ask, (ask-bid)/g_pipSize);
+   d += StringFormat("Positions: %d/%d | MaxDD: %.1f%%\n\n", nPos, InpMaxPositions, g_maxDrawdown);
 
-   //--- ATR (volatility measure)
-   int atrH1 = iATR(_Symbol, PERIOD_H1, 14);
-   int atrM15 = iATR(_Symbol, PERIOD_M15, 14);
-   double atrH1Buf[], atrM15Buf[];
-   ArraySetAsSeries(atrH1Buf, true);
-   ArraySetAsSeries(atrM15Buf, true);
-   if(atrH1 != INVALID_HANDLE)
+   // --- Volatilite ATR ---
+   int atrM1H  = iATR(_Symbol, PERIOD_M1,  14);
+   int atrM5H  = iATR(_Symbol, PERIOD_M5,  14);
+   int atrM15H = iATR(_Symbol, PERIOD_M15, 14);
+   int atrH1H  = iATR(_Symbol, PERIOD_H1,  14);
+   double a1[],a5[],a15[],a60[];
+   ArraySetAsSeries(a1,true); ArraySetAsSeries(a5,true);
+   ArraySetAsSeries(a15,true); ArraySetAsSeries(a60,true);
+   double atrM1=0,atrM5=0,atrM15=0,atrH1=0;
+   if(atrM1H!=INVALID_HANDLE){CopyBuffer(atrM1H,0,0,1,a1);atrM1=a1[0];IndicatorRelease(atrM1H);}
+   if(atrM5H!=INVALID_HANDLE){CopyBuffer(atrM5H,0,0,1,a5);atrM5=a5[0];IndicatorRelease(atrM5H);}
+   if(atrM15H!=INVALID_HANDLE){CopyBuffer(atrM15H,0,0,1,a15);atrM15=a15[0];IndicatorRelease(atrM15H);}
+   if(atrH1H!=INVALID_HANDLE){CopyBuffer(atrH1H,0,0,1,a60);atrH1=a60[0];IndicatorRelease(atrH1H);}
+   d += StringFormat("ATR: M1=%.2f M5=%.2f M15=%.2f H1=%.2f\n\n", atrM1, atrM5, atrM15, atrH1);
+
+   // --- M1 candles (scalp signal, 25 bougies) ---
+   MqlRates rm1[]; ArraySetAsSeries(rm1,true);
+   int cm1 = CopyRates(_Symbol, PERIOD_M1, 0, 25, rm1);
+   if(cm1 > 0)
    {
-      CopyBuffer(atrH1, 0, 0, 1, atrH1Buf);
-      IndicatorRelease(atrH1);
-   }
-   if(atrM15 != INVALID_HANDLE)
-   {
-      CopyBuffer(atrM15, 0, 0, 1, atrM15Buf);
-      IndicatorRelease(atrM15);
-   }
-   double atrH1Val  = ArraySize(atrH1Buf) > 0  ? atrH1Buf[0]  : 0;
-   double atrM15Val = ArraySize(atrM15Buf) > 0 ? atrM15Buf[0] : 0;
-   data += StringFormat("Volatility: ATR(14,H1)=%.2f ATR(14,M15)=%.2f\n\n", atrH1Val, atrM15Val);
-
-   //--- M5 candles (last 20, for short-term momentum)
-   MqlRates ratesM5[];
-   ArraySetAsSeries(ratesM5, true);
-   int copiedM5 = CopyRates(_Symbol, PERIOD_M5, 0, 20, ratesM5);
-   if(copiedM5 > 0)
-   {
-      data += "M5 Candles (20 newest, O/H/L/C/Vol):\n";
-      for(int i = 0; i < MathMin(copiedM5, 20); i++)
-         data += StringFormat("%.2f,%.2f,%.2f,%.2f,%lld\n",
-            ratesM5[i].open, ratesM5[i].high, ratesM5[i].low,
-            ratesM5[i].close, ratesM5[i].tick_volume);
-      data += "\n";
+      d += "M1 Candles (25 newest, O/H/L/C/Vol):\n";
+      for(int i=0; i<MathMin(cm1,25); i++)
+         d += StringFormat("%.2f,%.2f,%.2f,%.2f,%lld\n",
+            rm1[i].open,rm1[i].high,rm1[i].low,rm1[i].close,rm1[i].tick_volume);
+      d += "\n";
    }
 
-   //--- M15 candles (last 15)
-   MqlRates ratesM15[];
-   ArraySetAsSeries(ratesM15, true);
-   int copiedM15 = CopyRates(_Symbol, PERIOD_M15, 0, 15, ratesM15);
-   if(copiedM15 > 0)
+   // --- M5 candles (20 bougies) ---
+   MqlRates rm5[]; ArraySetAsSeries(rm5,true);
+   int cm5 = CopyRates(_Symbol, PERIOD_M5, 0, 20, rm5);
+   if(cm5 > 0)
    {
-      data += "M15 Candles (15 newest, O/H/L/C):\n";
-      for(int i = 0; i < MathMin(copiedM15, 15); i++)
-         data += StringFormat("%.2f,%.2f,%.2f,%.2f\n",
-            ratesM15[i].open, ratesM15[i].high, ratesM15[i].low, ratesM15[i].close);
-      data += "\n";
+      d += "M5 Candles (20 newest, O/H/L/C):\n";
+      for(int i=0; i<MathMin(cm5,20); i++)
+         d += StringFormat("%.2f,%.2f,%.2f,%.2f\n",
+            rm5[i].open,rm5[i].high,rm5[i].low,rm5[i].close);
+      d += "\n";
    }
 
-   //--- H1 candles (last 8, for trend context)
-   MqlRates ratesH1[];
-   ArraySetAsSeries(ratesH1, true);
-   int copiedH1 = CopyRates(_Symbol, PERIOD_H1, 0, 8, ratesH1);
-   if(copiedH1 > 0)
+   // --- M15 candles (15 bougies) ---
+   MqlRates rm15[]; ArraySetAsSeries(rm15,true);
+   int cm15 = CopyRates(_Symbol, PERIOD_M15, 0, 15, rm15);
+   if(cm15 > 0)
    {
-      data += "H1 Candles (8 newest, O/H/L/C):\n";
-      for(int i = 0; i < MathMin(copiedH1, 8); i++)
-         data += StringFormat("%.2f,%.2f,%.2f,%.2f\n",
-            ratesH1[i].open, ratesH1[i].high, ratesH1[i].low, ratesH1[i].close);
-      data += "\n";
+      d += "M15 Candles (15 newest, O/H/L/C):\n";
+      for(int i=0; i<MathMin(cm15,15); i++)
+         d += StringFormat("%.2f,%.2f,%.2f,%.2f\n",
+            rm15[i].open,rm15[i].high,rm15[i].low,rm15[i].close);
+      d += "\n";
    }
 
-   //--- Technical Indicators
-   data += "=== INDICATORS ===\n";
-
-   // RSI M5 and M15
-   int rsiM5  = iRSI(_Symbol, PERIOD_M5,  14, PRICE_CLOSE);
-   int rsiM15 = iRSI(_Symbol, PERIOD_M15, 14, PRICE_CLOSE);
-   double rsiM5Buf[], rsiM15Buf[];
-   ArraySetAsSeries(rsiM5Buf,  true);
-   ArraySetAsSeries(rsiM15Buf, true);
-   if(rsiM5 != INVALID_HANDLE)
+   // --- H1 candles (8 bougies, contexte macro) ---
+   MqlRates rh1[]; ArraySetAsSeries(rh1,true);
+   int ch1 = CopyRates(_Symbol, PERIOD_H1, 0, 8, rh1);
+   if(ch1 > 0)
    {
-      CopyBuffer(rsiM5, 0, 0, 3, rsiM5Buf);
-      IndicatorRelease(rsiM5);
-   }
-   if(rsiM15 != INVALID_HANDLE)
-   {
-      CopyBuffer(rsiM15, 0, 0, 3, rsiM15Buf);
-      IndicatorRelease(rsiM15);
-   }
-   if(ArraySize(rsiM5Buf) >= 2)
-      data += StringFormat("RSI(14,M5)=%.1f prev=%.1f\n", rsiM5Buf[0], rsiM5Buf[1]);
-   if(ArraySize(rsiM15Buf) >= 2)
-      data += StringFormat("RSI(14,M15)=%.1f prev=%.1f\n", rsiM15Buf[0], rsiM15Buf[1]);
-
-   // MACD M15
-   int macdH = iMACD(_Symbol, PERIOD_M15, 12, 26, 9, PRICE_CLOSE);
-   double macdMain[], macdSig[];
-   ArraySetAsSeries(macdMain, true);
-   ArraySetAsSeries(macdSig,  true);
-   if(macdH != INVALID_HANDLE)
-   {
-      CopyBuffer(macdH, 0, 0, 3, macdMain);
-      CopyBuffer(macdH, 1, 0, 3, macdSig);
-      IndicatorRelease(macdH);
-      if(ArraySize(macdMain) >= 2)
-         data += StringFormat("MACD(12,26,9,M15): main=%.4f sig=%.4f hist=%.4f prevHist=%.4f\n",
-            macdMain[0], macdSig[0], macdMain[0]-macdSig[0], macdMain[1]-macdSig[1]);
+      d += "H1 Candles (8 newest, O/H/L/C):\n";
+      for(int i=0; i<MathMin(ch1,8); i++)
+         d += StringFormat("%.2f,%.2f,%.2f,%.2f\n",
+            rh1[i].open,rh1[i].high,rh1[i].low,rh1[i].close);
+      d += "\n";
    }
 
-   // Bollinger Bands M15
-   int bbH = iBands(_Symbol, PERIOD_M15, 20, 0, 2.0, PRICE_CLOSE);
-   double bbUp[], bbMid[], bbLow[];
-   ArraySetAsSeries(bbUp,  true);
-   ArraySetAsSeries(bbMid, true);
-   ArraySetAsSeries(bbLow, true);
-   if(bbH != INVALID_HANDLE)
+   // --- INDICATEURS ---
+   d += "=== INDICATORS ===\n";
+
+   // RSI M1, M5, M15
+   int rM1=iRSI(_Symbol,PERIOD_M1,14,PRICE_CLOSE);
+   int rM5=iRSI(_Symbol,PERIOD_M5,14,PRICE_CLOSE);
+   int rM15=iRSI(_Symbol,PERIOD_M15,14,PRICE_CLOSE);
+   double rb1[],rb5[],rb15[];
+   ArraySetAsSeries(rb1,true); ArraySetAsSeries(rb5,true); ArraySetAsSeries(rb15,true);
+   if(rM1!=INVALID_HANDLE){CopyBuffer(rM1,0,0,3,rb1);IndicatorRelease(rM1);}
+   if(rM5!=INVALID_HANDLE){CopyBuffer(rM5,0,0,3,rb5);IndicatorRelease(rM5);}
+   if(rM15!=INVALID_HANDLE){CopyBuffer(rM15,0,0,3,rb15);IndicatorRelease(rM15);}
+   if(ArraySize(rb1)>=2)  d+=StringFormat("RSI(14,M1)=%.1f prev=%.1f\n",rb1[0],rb1[1]);
+   if(ArraySize(rb5)>=2)  d+=StringFormat("RSI(14,M5)=%.1f prev=%.1f\n",rb5[0],rb5[1]);
+   if(ArraySize(rb15)>=2) d+=StringFormat("RSI(14,M15)=%.1f prev=%.1f\n",rb15[0],rb15[1]);
+
+   // MACD M5 et M15
+   int mM5=iMACD(_Symbol,PERIOD_M5,12,26,9,PRICE_CLOSE);
+   int mM15=iMACD(_Symbol,PERIOD_M15,12,26,9,PRICE_CLOSE);
+   double mm5[],ms5[],mm15[],ms15[];
+   ArraySetAsSeries(mm5,true);ArraySetAsSeries(ms5,true);
+   ArraySetAsSeries(mm15,true);ArraySetAsSeries(ms15,true);
+   if(mM5!=INVALID_HANDLE)
    {
-      CopyBuffer(bbH, 1, 0, 1, bbUp);
-      CopyBuffer(bbH, 0, 0, 1, bbMid);
-      CopyBuffer(bbH, 2, 0, 1, bbLow);
-      IndicatorRelease(bbH);
-      if(ArraySize(bbUp) > 0)
+      CopyBuffer(mM5,0,0,3,mm5); CopyBuffer(mM5,1,0,3,ms5);
+      IndicatorRelease(mM5);
+      if(ArraySize(mm5)>=2)
+         d+=StringFormat("MACD(M5): main=%.4f sig=%.4f hist=%.4f prevHist=%.4f\n",
+            mm5[0],ms5[0],mm5[0]-ms5[0],mm5[1]-ms5[1]);
+   }
+   if(mM15!=INVALID_HANDLE)
+   {
+      CopyBuffer(mM15,0,0,3,mm15); CopyBuffer(mM15,1,0,3,ms15);
+      IndicatorRelease(mM15);
+      if(ArraySize(mm15)>=2)
+         d+=StringFormat("MACD(M15): main=%.4f sig=%.4f hist=%.4f prevHist=%.4f\n",
+            mm15[0],ms15[0],mm15[0]-ms15[0],mm15[1]-ms15[1]);
+   }
+
+   // Bollinger Bands M5 et M15
+   int bM5=iBands(_Symbol,PERIOD_M5,20,0,2.0,PRICE_CLOSE);
+   int bM15=iBands(_Symbol,PERIOD_M15,20,0,2.0,PRICE_CLOSE);
+   double bu5[],bm5[],bl5[],bu15[],bm15[],bl15[];
+   ArraySetAsSeries(bu5,true);ArraySetAsSeries(bm5,true);ArraySetAsSeries(bl5,true);
+   ArraySetAsSeries(bu15,true);ArraySetAsSeries(bm15,true);ArraySetAsSeries(bl15,true);
+   if(bM5!=INVALID_HANDLE)
+   {
+      CopyBuffer(bM5,1,0,1,bu5);CopyBuffer(bM5,0,0,1,bm5);CopyBuffer(bM5,2,0,1,bl5);
+      IndicatorRelease(bM5);
+      if(ArraySize(bu5)>0)
       {
-         double bbPos = (bbUp[0] - bbLow[0]) > 0
-            ? (bid - bbLow[0]) / (bbUp[0] - bbLow[0]) * 100.0 : 50;
-         data += StringFormat("BB(20,M15): U=%.2f M=%.2f L=%.2f BandPos=%.0f%%\n",
-            bbUp[0], bbMid[0], bbLow[0], bbPos);
+         double bw5=(bu5[0]-bl5[0]);
+         double bp5=bw5>0?(bid-bl5[0])/bw5*100:50;
+         d+=StringFormat("BB(20,M5): U=%.2f M=%.2f L=%.2f Pos=%.0f%% Width=%.2f\n",
+            bu5[0],bm5[0],bl5[0],bp5,bw5);
+      }
+   }
+   if(bM15!=INVALID_HANDLE)
+   {
+      CopyBuffer(bM15,1,0,1,bu15);CopyBuffer(bM15,0,0,1,bm15);CopyBuffer(bM15,2,0,1,bl15);
+      IndicatorRelease(bM15);
+      if(ArraySize(bu15)>0)
+      {
+         double bw15=(bu15[0]-bl15[0]);
+         double bp15=bw15>0?(bid-bl15[0])/bw15*100:50;
+         d+=StringFormat("BB(20,M15): U=%.2f M=%.2f L=%.2f Pos=%.0f%% Width=%.2f\n",
+            bu15[0],bm15[0],bl15[0],bp15,bw15);
       }
    }
 
-   // EMAs
-   int ema20M5H  = iMA(_Symbol, PERIOD_M5,  20,  0, MODE_EMA, PRICE_CLOSE);
-   int ema20M15H = iMA(_Symbol, PERIOD_M15, 20,  0, MODE_EMA, PRICE_CLOSE);
-   int ema50M15H = iMA(_Symbol, PERIOD_M15, 50,  0, MODE_EMA, PRICE_CLOSE);
-   int ema200H1H = iMA(_Symbol, PERIOD_H1,  200, 0, MODE_EMA, PRICE_CLOSE);
-   double ema20M5Buf[], ema20M15Buf[], ema50M15Buf[], ema200H1Buf[];
-   ArraySetAsSeries(ema20M5Buf,  true);
-   ArraySetAsSeries(ema20M15Buf, true);
-   ArraySetAsSeries(ema50M15Buf, true);
-   ArraySetAsSeries(ema200H1Buf, true);
-   double ema20M5=0, ema20M15=0, ema50M15=0, ema200H1=0;
-   if(ema20M5H  != INVALID_HANDLE){ CopyBuffer(ema20M5H,  0,0,1,ema20M5Buf);  ema20M5=ema20M5Buf[0];   IndicatorRelease(ema20M5H);  }
-   if(ema20M15H != INVALID_HANDLE){ CopyBuffer(ema20M15H, 0,0,1,ema20M15Buf); ema20M15=ema20M15Buf[0]; IndicatorRelease(ema20M15H); }
-   if(ema50M15H != INVALID_HANDLE){ CopyBuffer(ema50M15H, 0,0,1,ema50M15Buf); ema50M15=ema50M15Buf[0]; IndicatorRelease(ema50M15H); }
-   if(ema200H1H != INVALID_HANDLE){ CopyBuffer(ema200H1H, 0,0,1,ema200H1Buf); ema200H1=ema200H1Buf[0]; IndicatorRelease(ema200H1H); }
-   data += StringFormat("EMA: 20M5=%.2f 20M15=%.2f 50M15=%.2f 200H1=%.2f\n",
-      ema20M5, ema20M15, ema50M15, ema200H1);
+   // EMA multi-TF
+   double ema8M1=0,ema21M1=0,ema8M5=0,ema21M5=0,ema50M15=0,ema200H1=0;
+   int e1=iMA(_Symbol,PERIOD_M1,8,0,MODE_EMA,PRICE_CLOSE);
+   int e2=iMA(_Symbol,PERIOD_M1,21,0,MODE_EMA,PRICE_CLOSE);
+   int e3=iMA(_Symbol,PERIOD_M5,8,0,MODE_EMA,PRICE_CLOSE);
+   int e4=iMA(_Symbol,PERIOD_M5,21,0,MODE_EMA,PRICE_CLOSE);
+   int e5=iMA(_Symbol,PERIOD_M15,50,0,MODE_EMA,PRICE_CLOSE);
+   int e6=iMA(_Symbol,PERIOD_H1,200,0,MODE_EMA,PRICE_CLOSE);
+   double eb[1]; ArraySetAsSeries(eb,true);
+   if(e1!=INVALID_HANDLE){CopyBuffer(e1,0,0,1,eb);ema8M1=eb[0];IndicatorRelease(e1);}
+   if(e2!=INVALID_HANDLE){CopyBuffer(e2,0,0,1,eb);ema21M1=eb[0];IndicatorRelease(e2);}
+   if(e3!=INVALID_HANDLE){CopyBuffer(e3,0,0,1,eb);ema8M5=eb[0];IndicatorRelease(e3);}
+   if(e4!=INVALID_HANDLE){CopyBuffer(e4,0,0,1,eb);ema21M5=eb[0];IndicatorRelease(e4);}
+   if(e5!=INVALID_HANDLE){CopyBuffer(e5,0,0,1,eb);ema50M15=eb[0];IndicatorRelease(e5);}
+   if(e6!=INVALID_HANDLE){CopyBuffer(e6,0,0,1,eb);ema200H1=eb[0];IndicatorRelease(e6);}
+   d+=StringFormat("EMA: 8M1=%.2f 21M1=%.2f | 8M5=%.2f 21M5=%.2f | 50M15=%.2f | 200H1=%.2f\n",
+      ema8M1,ema21M1,ema8M5,ema21M5,ema50M15,ema200H1);
 
-   // Stochastic M15
-   int stochH = iStochastic(_Symbol, PERIOD_M15, 5, 3, 3, MODE_SMA, STO_LOWHIGH);
-   double stochK[], stochD[];
-   ArraySetAsSeries(stochK, true);
-   ArraySetAsSeries(stochD, true);
-   if(stochH != INVALID_HANDLE)
+   // Stochastique M1 et M5
+   int stM1=iStochastic(_Symbol,PERIOD_M1,5,3,3,MODE_SMA,STO_LOWHIGH);
+   int stM5=iStochastic(_Symbol,PERIOD_M5,5,3,3,MODE_SMA,STO_LOWHIGH);
+   double sk1[],sd1[],sk5[],sd5[];
+   ArraySetAsSeries(sk1,true);ArraySetAsSeries(sd1,true);
+   ArraySetAsSeries(sk5,true);ArraySetAsSeries(sd5,true);
+   if(stM1!=INVALID_HANDLE)
    {
-      CopyBuffer(stochH, 0, 0, 3, stochK);
-      CopyBuffer(stochH, 1, 0, 3, stochD);
-      IndicatorRelease(stochH);
-      if(ArraySize(stochK) >= 2)
-         data += StringFormat("Stoch(5,3,3,M15): K=%.1f D=%.1f prevK=%.1f\n",
-            stochK[0], stochD[0], stochK[1]);
+      CopyBuffer(stM1,0,0,3,sk1);CopyBuffer(stM1,1,0,3,sd1);IndicatorRelease(stM1);
+      if(ArraySize(sk1)>=2) d+=StringFormat("Stoch(M1): K=%.1f D=%.1f prevK=%.1f\n",sk1[0],sd1[0],sk1[1]);
+   }
+   if(stM5!=INVALID_HANDLE)
+   {
+      CopyBuffer(stM5,0,0,3,sk5);CopyBuffer(stM5,1,0,3,sd5);IndicatorRelease(stM5);
+      if(ArraySize(sk5)>=2) d+=StringFormat("Stoch(M5): K=%.1f D=%.1f prevK=%.1f\n",sk5[0],sd5[0],sk5[1]);
    }
 
    // ADX M15
-   int adxH = iADX(_Symbol, PERIOD_M15, 14);
-   double adxBuf[], diPlus[], diMinus[];
-   ArraySetAsSeries(adxBuf,   true);
-   ArraySetAsSeries(diPlus,   true);
-   ArraySetAsSeries(diMinus,  true);
-   if(adxH != INVALID_HANDLE)
+   int adxH=iADX(_Symbol,PERIOD_M15,14);
+   double adxV[],dip[],dim[];
+   ArraySetAsSeries(adxV,true);ArraySetAsSeries(dip,true);ArraySetAsSeries(dim,true);
+   if(adxH!=INVALID_HANDLE)
    {
-      CopyBuffer(adxH, 0, 0, 1, adxBuf);
-      CopyBuffer(adxH, 1, 0, 1, diPlus);
-      CopyBuffer(adxH, 2, 0, 1, diMinus);
+      CopyBuffer(adxH,0,0,1,adxV);CopyBuffer(adxH,1,0,1,dip);CopyBuffer(adxH,2,0,1,dim);
       IndicatorRelease(adxH);
-      if(ArraySize(adxBuf) > 0)
-         data += StringFormat("ADX(14,M15)=%.1f DI+=%.1f DI-=%.1f Trend=%s\n",
-            adxBuf[0], diPlus[0], diMinus[0],
-            adxBuf[0] > 25 ? (diPlus[0] > diMinus[0] ? "UP" : "DOWN") : "WEAK");
+      if(ArraySize(adxV)>0)
+         d+=StringFormat("ADX(14,M15)=%.1f DI+=%.1f DI-=%.1f TrendStr=%s\n",
+            adxV[0],dip[0],dim[0],
+            adxV[0]>30?"FORT":(adxV[0]>20?"MODERE":"FAIBLE"));
    }
 
-   // CCI M15
-   int cciH = iCCI(_Symbol, PERIOD_M15, 20, PRICE_TYPICAL);
-   double cciBuf[];
-   ArraySetAsSeries(cciBuf, true);
-   if(cciH != INVALID_HANDLE)
+   // CCI M5
+   int cciH=iCCI(_Symbol,PERIOD_M5,20,PRICE_TYPICAL);
+   double cciv[];
+   ArraySetAsSeries(cciv,true);
+   if(cciH!=INVALID_HANDLE)
    {
-      CopyBuffer(cciH, 0, 0, 2, cciBuf);
-      IndicatorRelease(cciH);
-      if(ArraySize(cciBuf) > 0)
-         data += StringFormat("CCI(20,M15)=%.1f\n", cciBuf[0]);
+      CopyBuffer(cciH,0,0,2,cciv);IndicatorRelease(cciH);
+      if(ArraySize(cciv)>=2)
+         d+=StringFormat("CCI(20,M5)=%.1f prev=%.1f\n",cciv[0],cciv[1]);
    }
 
-   //--- Market structure
-   data += "\n=== MARKET STRUCTURE ===\n";
-   string h1Trend = bid > ema200H1 ? "BULLISH (above EMA200H1)" : "BEARISH (below EMA200H1)";
-   string m15Trend = ema20M15 > ema50M15 ? "BULLISH (EMA20>EMA50)" : "BEARISH (EMA20<EMA50)";
-   data += "H1 Trend: " + h1Trend + "\n";
-   data += "M15 Trend: " + m15Trend + "\n";
-
-   // Support/Resistance from recent H1 highs/lows
-   if(copiedH1 >= 8)
+   // Momentum M1 (Williams %R)
+   int wrH=iWPR(_Symbol,PERIOD_M1,14);
+   double wrV[];
+   ArraySetAsSeries(wrV,true);
+   if(wrH!=INVALID_HANDLE)
    {
-      double highH = ratesH1[0].high;
-      double lowL  = ratesH1[0].low;
-      for(int i = 1; i < MathMin(copiedH1, 8); i++)
+      CopyBuffer(wrH,0,0,2,wrV);IndicatorRelease(wrH);
+      if(ArraySize(wrV)>0)
+         d+=StringFormat("WilliamsR(14,M1)=%.1f\n",wrV[0]);
+   }
+
+   // --- Structure de marche ---
+   d += "\n=== MARKET STRUCTURE ===\n";
+   string h1trend = bid>ema200H1 ? "HAUSSIER (>EMA200H1)" : "BAISSIER (<EMA200H1)";
+   string m5trend = ema8M5>ema21M5 ? "HAUSSIER (EMA8>EMA21)" : "BAISSIER (EMA8<EMA21)";
+   string m1mom   = ema8M1>ema21M1 ? "UP" : "DOWN";
+   d += "H1 Tendance: " + h1trend + "\n";
+   d += "M5 Tendance: " + m5trend + "\n";
+   d += "M1 Momentum: EMA8 " + (ema8M1>ema21M1?"au-dessus":"en-dessous") + " EMA21\n";
+
+   // Support/resistance H1
+   if(ch1>=8)
+   {
+      double hh=rh1[0].high, ll=rh1[0].low;
+      for(int i=1;i<MathMin(ch1,8);i++){if(rh1[i].high>hh)hh=rh1[i].high;if(rh1[i].low<ll)ll=rh1[i].low;}
+      d+=StringFormat("H1 Range(8bars): Resistance=%.2f Support=%.2f\n",hh,ll);
+   }
+
+   // --- Positions ouvertes (gestion portfolio) ---
+   if(nPos > 0)
+   {
+      d += "\n=== OPEN POSITIONS (Portfolio Management) ===\n";
+      d += "Indique si certaines positions doivent etre fermees.\n";
+      double totalFloat=0;
+      for(int i=PositionsTotal()-1;i>=0;i--)
       {
-         if(ratesH1[i].high > highH) highH = ratesH1[i].high;
-         if(ratesH1[i].low  < lowL)  lowL  = ratesH1[i].low;
+         if(!g_position.SelectByIndex(i)) continue;
+         if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
+         double pp = g_position.PositionType()==POSITION_TYPE_BUY
+            ? (bid - g_position.PriceOpen())/g_pipSize
+            : (g_position.PriceOpen() - ask)/g_pipSize;
+         totalFloat += g_position.Profit();
+         d += StringFormat("#%llu %s %.2flots @%.2f SL=%.2f TP=%.2f P&L=%.1fpips $%.1f\n",
+            g_position.Ticket(),
+            g_position.PositionType()==POSITION_TYPE_BUY?"BUY":"SELL",
+            g_position.Volume(),
+            g_position.PriceOpen(),
+            g_position.StopLoss(),
+            g_position.TakeProfit(),
+            pp,
+            g_position.Profit());
       }
-      data += StringFormat("H1 Range (8 bars): High=%.2f Low=%.2f\n", highH, lowL);
+      d += StringFormat("Total Float P&L: $%.2f\n", totalFloat);
    }
 
-   //--- Open positions summary
-   if(openPos > 0)
-   {
-      data += "\n=== OPEN POSITIONS ===\n";
-      for(int i = PositionsTotal() - 1; i >= 0; i--)
-      {
-         if(g_position.SelectByIndex(i) &&
-            g_position.Symbol() == _Symbol &&
-            g_position.Magic()  == InpMagicNumber)
-         {
-            double posProfitPips = g_position.PositionType() == POSITION_TYPE_BUY
-               ? (bid - g_position.PriceOpen()) / g_pipSize
-               : (g_position.PriceOpen() - ask) / g_pipSize;
-            data += StringFormat("%s %.2flots @%.2f SL=%.2f TP=%.2f Profit=%.1fpips $%.1f\n",
-               g_position.PositionType() == POSITION_TYPE_BUY ? "BUY" : "SELL",
-               g_position.Volume(),
-               g_position.PriceOpen(),
-               g_position.StopLoss(),
-               g_position.TakeProfit(),
-               posProfitPips,
-               g_position.Profit());
-         }
-      }
-   }
-
-   return data;
+   return d;
 }
 
 
 //+------------------------------------------------------------------+
-//| Query Claude Haiku API via WebRequest                              |
+//| QueryClaude: appel API avec prompt portfolio complet               |
 //+------------------------------------------------------------------+
 bool QueryClaude(string marketData)
 {
-   string systemPrompt = "You are an expert XAUUSD (Gold) scalp and swing trader. "
-      "Analyze the provided multi-timeframe market data and technical indicators. "
-      "Be DECISIVE. When conditions align (RSI, MACD, EMA alignment, ADX trend strength), "
-      "give a clear BUY or SELL signal. Trade ALL sessions including Asian and off-hours. "
-      "Look for: momentum breakouts, RSI divergence, MACD crossovers, EMA bounces, "
-      "BB squeezes, CCI extremes. Set tight SL (15-40 pips) and generous TP (30-80 pips). "
-      "Only output HOLD if conditions are genuinely mixed. Be aggressive when aligned.";
+   string sys = "Tu es un trader expert XAUUSD (Gold) specialise dans le scalp et le swing. "
+      "Analyse les donnees multi-timeframe M1/M5/M15/H1 et tous les indicateurs. "
+      "SOIS OFFENSIF: cherche des signaux sur toutes les sessions (Sydney, Tokyo, London, NY). "
+      "Strategies: breakouts sur M1/M5, rebonds EMA, divergences RSI, MACD crossovers, "
+      "squeeze BB, extremes CCI/Stoch, tendance ADX. "
+      "Pour le portfolio: recommande close_losers=true si les positions perdantes vont contre "
+      "un nouveau signal fort. Recommande add_to_winner=true pour pyramider sur les gagnantes. "
+      "SL tight (10-25 pips scalp) ou moyen (25-50 swing). TP 2x SL minimum. "
+      "Ne dis HOLD que si le marche est vraiment indecis.";
 
-   string userContent = marketData
-      + "\n\nProvide your trading decision. "
-      + "Respond ONLY with this exact JSON (no markdown, no extra text):\n"
-      + "{\"action\":\"BUY\",\"confidence\":75,\"sl_pips\":25,\"tp_pips\":55,"
-      + "\"reasoning\":\"brief reason under 60 chars\"}";
-
-   // Escape for JSON payload
-   string escapedSystem = EscapeJSON(systemPrompt);
-   string escapedUser   = EscapeJSON(userContent);
+   string usr = marketData
+      + "\n\nDonne ta decision de trading. "
+      + "Reponds UNIQUEMENT avec ce JSON exact (pas de markdown):\n"
+      + "{\"action\":\"BUY\",\"confidence\":82,\"sl_pips\":20,\"tp_pips\":42,"
+      + "\"close_losers\":false,\"add_to_winner\":false,"
+      + "\"reasoning\":\"raison courte max 70 chars\"}";
 
    string payload = "{";
    payload += "\"model\":\"" + InpModel + "\",";
-   payload += "\"max_tokens\":180,";
-   payload += "\"system\":\"" + escapedSystem + "\",";
-   payload += "\"messages\":[{\"role\":\"user\",\"content\":\"" + escapedUser + "\"}]";
+   payload += "\"max_tokens\":200,";
+   payload += "\"system\":\"" + EscapeJSON(sys) + "\",";
+   payload += "\"messages\":[{\"role\":\"user\",\"content\":\"" + EscapeJSON(usr) + "\"}]";
    payload += "}";
 
    string headers = "Content-Type: application/json\r\n"
       + "x-api-key: " + InpApiKey + "\r\n"
       + "anthropic-version: 2023-06-01\r\n";
 
-   uchar postData[];
-   uchar responseData[];
-   string responseHeaders;
+   uchar postArr[], respArr[];
+   string respHeaders;
+   int payLen = StringToCharArray(payload, postArr, 0, StringLen(payload));
+   ArrayResize(postArr, payLen);
 
-   int payloadLen = StringToCharArray(payload, postData, 0, StringLen(payload));
-   ArrayResize(postData, payloadLen);
-
-   int timeout = 15000; // 15 second timeout
-   int httpCode = WebRequest(
-      "POST",
+   int code = WebRequest("POST",
       "https://api.anthropic.com/v1/messages",
-      headers,
-      timeout,
-      postData,
-      responseData,
-      responseHeaders
-   );
+      headers, 15000, postArr, respArr, respHeaders);
 
-   if(httpCode == -1)
+   if(code == -1)
    {
-      int err = GetLastError();
-      Print("[API ERROR] WebRequest failed. Error=", err,
-         ". Ensure https://api.anthropic.com is in MT5 Allowed URLs (Tools>Options>Expert Advisors).");
+      Print("[API ERROR] code=-1 err=", GetLastError(),
+         " -> Ajouter https://api.anthropic.com aux URLs MT5 (Outils>Options>Experts)");
+      return false;
+   }
+   if(code != 200)
+   {
+      Print("[API ERROR] HTTP ", code, ": ", StringSubstr(CharArrayToString(respArr),0,400));
       return false;
    }
 
-   if(httpCode != 200)
-   {
-      string errResp = CharArrayToString(responseData);
-      Print("[API ERROR] HTTP ", httpCode, ": ", StringSubstr(errResp, 0, 300));
-      return false;
-   }
-
-   string response = CharArrayToString(responseData);
-   if(InpEnableLogging)
-      Print("[API] Response: ", StringSubstr(response, 0, 600));
-
-   return ParseClaudeResponse(response);
+   string resp = CharArrayToString(respArr);
+   if(InpEnableLogging) Print("[API] Raw: ", StringSubstr(resp,0,700));
+   return ParseClaudeResponse(resp);
 }
 
 //+------------------------------------------------------------------+
-//| Parse Claude API JSON response                                     |
+//| ParseClaudeResponse                                                |
 //+------------------------------------------------------------------+
 bool ParseClaudeResponse(string response)
 {
-   // Find the "text" field in the Anthropic API response
-   // Format: {..., "content": [{"type": "text", "text": "{...json...}"}], ...}
-   int textStart = StringFind(response, "\"text\":\"");
-   if(textStart < 0)
+   int ts = StringFind(response, "\"text\":\"");
+   if(ts < 0){ Print("[PARSE] Pas de champ 'text'"); return false; }
+   ts += 8;
+   int te = ts;
+   int rl = StringLen(response);
+   while(te < rl)
    {
-      Print("[PARSE ERROR] No 'text' field found in response");
-      return false;
+      ushort c = StringGetCharacter(response, te);
+      ushort p = te > 0 ? StringGetCharacter(response, te-1) : 0;
+      if(c=='"' && p!='\\') break;
+      te++;
    }
-   textStart += 8;
+   string rawText = UnescapeJSON(StringSubstr(response, ts, te-ts));
+   if(InpEnableLogging) Print("[PARSE] Text: ", rawText);
 
-   // Find closing unescaped quote
-   int textEnd = textStart;
-   int respLen = StringLen(response);
-   while(textEnd < respLen)
-   {
-      ushort ch   = StringGetCharacter(response, textEnd);
-      ushort prev = textEnd > 0 ? StringGetCharacter(response, textEnd - 1) : 0;
-      if(ch == '"' && prev != '\\') break;
-      textEnd++;
-   }
+   int js = StringFind(rawText, "{");
+   int je = StringFind(rawText, "}", js);
+   if(js<0||je<0){ Print("[PARSE] Pas de JSON dans: ", rawText); return false; }
+   string j = StringSubstr(rawText, js, je-js+1);
 
-   string rawText = StringSubstr(response, textStart, textEnd - textStart);
-   rawText = UnescapeJSON(rawText);
-
-   if(InpEnableLogging)
-      Print("[PARSE] Claude text: ", rawText);
-
-   // Find the JSON object within Claude's text response
-   int jsonStart = StringFind(rawText, "{");
-   int jsonEnd   = StringFind(rawText, "}", jsonStart);
-   if(jsonStart < 0 || jsonEnd < 0)
-   {
-      Print("[PARSE ERROR] No JSON object found in: ", rawText);
-      return false;
-   }
-
-   string jsonStr = StringSubstr(rawText, jsonStart, jsonEnd - jsonStart + 1);
-
-   // Extract fields
-   g_lastAction = ExtractJSONString(jsonStr, "action");
-   if(g_lastAction == "") g_lastAction = "HOLD";
+   g_lastAction = ExtractJSONString(j, "action");
+   if(g_lastAction=="") g_lastAction="HOLD";
    StringToUpper(g_lastAction);
 
-   string confStr = ExtractJSONNumber(jsonStr, "confidence");
-   g_lastConfidence = (int)StringToInteger(confStr);
-   if(g_lastConfidence <= 0 || g_lastConfidence > 100) g_lastConfidence = 50;
+   string cs = ExtractJSONNumber(j, "confidence");
+   g_lastConfidence = (int)StringToInteger(cs);
+   if(g_lastConfidence<=0||g_lastConfidence>100) g_lastConfidence=50;
 
-   string slStr = ExtractJSONNumber(jsonStr, "sl_pips");
-   g_lastSLPips = StringToDouble(slStr);
+   string ss = ExtractJSONNumber(j, "sl_pips");
+   g_lastSLPips = StringToDouble(ss);
    if(g_lastSLPips < InpMinSLPips) g_lastSLPips = InpMinSLPips;
    if(g_lastSLPips > InpMaxSLPips) g_lastSLPips = InpMaxSLPips;
 
-   string tpStr = ExtractJSONNumber(jsonStr, "tp_pips");
-   g_lastTPPips = StringToDouble(tpStr);
-   if(g_lastTPPips <= 0) g_lastTPPips = g_lastSLPips * 2;
+   string ts2 = ExtractJSONNumber(j, "tp_pips");
+   g_lastTPPips = StringToDouble(ts2);
+   if(g_lastTPPips <= 0) g_lastTPPips = g_lastSLPips * 2.0;
 
-   g_lastReasoning = ExtractJSONString(jsonStr, "reasoning");
+   g_lastReasoning   = ExtractJSONString(j, "reasoning");
+   g_lastCloseLosers = (StringFind(j, "\"close_losers\":true")>=0);
+   g_lastAddWinner   = (StringFind(j, "\"add_to_winner\":true")>=0);
 
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Execute trade based on Claude's signal                             |
+//| ManagePortfolio: gestion intelligente des positions par Claude    |
 //+------------------------------------------------------------------+
-void ExecuteSignal()
+void ManagePortfolio()
 {
-   if(g_lastAction != "BUY" && g_lastAction != "SELL") return;
-
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   int closedCount = 0;
 
-   double lots    = CalculateLots(g_lastConfidence, g_lastSLPips);
-   double slPips  = InpUseClaudeSLTP ? g_lastSLPips : InpDefaultSL;
-   double tpPips  = InpUseClaudeSLTP ? g_lastTPPips : InpDefaultTP;
-
-   string comment = StringFormat("GoldAI|c=%d|%s", g_lastConfidence, g_lastReasoning);
-
-   if(g_lastAction == "BUY")
+   // 1. Fermer positions perdantes si Claude le demande
+   if(InpCloseLosersOnSig && g_lastCloseLosers && g_lastConfidence >= InpMinConfToCloseBad)
    {
-      double slPrice = NormalizeDouble(ask - slPips * g_pipSize, _Digits);
-      double tpPrice = NormalizeDouble(ask + tpPips * g_pipSize, _Digits);
+      for(int i=PositionsTotal()-1; i>=0; i--)
+      {
+         if(!g_position.SelectByIndex(i)) continue;
+         if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
 
-      if(g_trade.Buy(lots, _Symbol, ask, slPrice, tpPrice, comment))
-      {
-         g_totalTrades++;
-         Print("[TRADE] BUY opened | lots=", lots, " @ ", ask,
-               " | SL=", slPrice, " TP=", tpPrice,
-               " | Risk=", DoubleToString(g_lastSLPips, 1), "p",
-               " | Reward=", DoubleToString(g_lastTPPips, 1), "p",
-               " | conf=", g_lastConfidence, "%");
-      }
-      else
-      {
-         Print("[TRADE ERROR] BUY failed: ", g_trade.ResultRetcodeDescription(),
-               " (", g_trade.ResultRetcode(), ")");
+         bool isLosing  = g_position.Profit() < 0;
+         bool isOpposed = (g_lastAction=="BUY"  && g_position.PositionType()==POSITION_TYPE_SELL)
+                       || (g_lastAction=="SELL" && g_position.PositionType()==POSITION_TYPE_BUY);
+
+         if(isLosing && isOpposed)
+         {
+            if(g_trade.PositionClose(g_position.Ticket()))
+            {
+               closedCount++;
+               Print("[PORTFOLIO] Ferme position perdante opposee #", g_position.Ticket(),
+                     " P&L=$", DoubleToString(g_position.Profit(),2));
+            }
+         }
       }
    }
-   else // SELL
-   {
-      double slPrice = NormalizeDouble(bid + slPips * g_pipSize, _Digits);
-      double tpPrice = NormalizeDouble(bid - tpPips * g_pipSize, _Digits);
 
-      if(g_trade.Sell(lots, _Symbol, bid, slPrice, tpPrice, comment))
+   // 2. Fermer si perte depasse seuil absolu ($)
+   if(InpMaxLossToClose < 0)
+   {
+      for(int i=PositionsTotal()-1; i>=0; i--)
       {
-         g_totalTrades++;
-         Print("[TRADE] SELL opened | lots=", lots, " @ ", bid,
-               " | SL=", slPrice, " TP=", tpPrice,
-               " | Risk=", DoubleToString(g_lastSLPips, 1), "p",
-               " | Reward=", DoubleToString(g_lastTPPips, 1), "p",
-               " | conf=", g_lastConfidence, "%");
-      }
-      else
-      {
-         Print("[TRADE ERROR] SELL failed: ", g_trade.ResultRetcodeDescription(),
-               " (", g_trade.ResultRetcode(), ")");
+         if(!g_position.SelectByIndex(i)) continue;
+         if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
+         if(g_position.Profit() < InpMaxLossToClose)
+         {
+            if(g_trade.PositionClose(g_position.Ticket()))
+            {
+               closedCount++;
+               Print("[PORTFOLIO] Stop-loss dollar declenche #", g_position.Ticket(),
+                     " P&L=$", DoubleToString(g_position.Profit(),2));
+            }
+         }
       }
    }
+
+   // 3. Fermer positions contraires si signal fort (InpCloseOnSignalFlip)
+   if(InpCloseOnSignalFlip && !InpAllowHedge && g_lastConfidence >= 80)
+   {
+      for(int i=PositionsTotal()-1; i>=0; i--)
+      {
+         if(!g_position.SelectByIndex(i)) continue;
+         if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
+         bool isOpposed = (g_lastAction=="BUY"  && g_position.PositionType()==POSITION_TYPE_SELL)
+                       || (g_lastAction=="SELL" && g_position.PositionType()==POSITION_TYPE_BUY);
+         if(isOpposed)
+         {
+            if(g_trade.PositionClose(g_position.Ticket()))
+            {
+               closedCount++;
+               Print("[PORTFOLIO] Flip signal fort (conf=", g_lastConfidence,
+                     "%) ferme #", g_position.Ticket());
+            }
+         }
+      }
+   }
+
+   // 4. Pyramide sur gagnante si Claude recommande add_to_winner
+   if(g_lastAddWinner && CountPositions() < InpMaxPositions)
+   {
+      for(int i=PositionsTotal()-1; i>=0; i--)
+      {
+         if(!g_position.SelectByIndex(i)) continue;
+         if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
+         bool isSameDir = (g_lastAction=="BUY"  && g_position.PositionType()==POSITION_TYPE_BUY)
+                       || (g_lastAction=="SELL" && g_position.PositionType()==POSITION_TYPE_SELL);
+         if(isSameDir && g_position.Profit() > 0)
+         {
+            Print("[PORTFOLIO] Pyramide sur gagnante #", g_position.Ticket());
+            ExecuteSignal();
+            break; // Une seule addition
+         }
+      }
+   }
+
+   if(closedCount>0) Print("[PORTFOLIO] Positions fermees: ", closedCount);
 }
 
 //+------------------------------------------------------------------+
-//| Dynamic lot sizing: risk-based with confidence multiplier          |
+//| ExecuteSignal: ouvrir un trade                                     |
+//+------------------------------------------------------------------+
+void ExecuteSignal()
+{
+   if(g_lastAction!="BUY" && g_lastAction!="SELL") return;
+
+   double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double lots = CalculateLots(g_lastConfidence, g_lastSLPips);
+   double sl   = InpUseClaudeSLTP ? g_lastSLPips : InpDefaultSL;
+   double tp   = InpUseClaudeSLTP ? g_lastTPPips : InpDefaultTP;
+   string cmt  = StringFormat("GoldAI|c=%d|%s", g_lastConfidence, g_lastReasoning);
+
+   if(g_lastAction == "BUY")
+   {
+      double slP = NormalizeDouble(ask - sl*g_pipSize, _Digits);
+      double tpP = NormalizeDouble(ask + tp*g_pipSize, _Digits);
+      if(g_trade.Buy(lots, _Symbol, ask, slP, tpP, cmt))
+      {
+         g_totalTrades++;
+         Print("[TRADE] BUY lots=",lots," @",ask," SL=",slP," TP=",tpP," conf=",g_lastConfidence,"%");
+      }
+      else Print("[TRADE ERROR] BUY: ", g_trade.ResultRetcodeDescription());
+   }
+   else
+   {
+      double slP = NormalizeDouble(bid + sl*g_pipSize, _Digits);
+      double tpP = NormalizeDouble(bid - tp*g_pipSize, _Digits);
+      if(g_trade.Sell(lots, _Symbol, bid, slP, tpP, cmt))
+      {
+         g_totalTrades++;
+         Print("[TRADE] SELL lots=",lots," @",bid," SL=",slP," TP=",tpP," conf=",g_lastConfidence,"%");
+      }
+      else Print("[TRADE ERROR] SELL: ", g_trade.ResultRetcodeDescription());
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| CalculateLots: lots EXPONENTIELS selon confiance                   |
 //+------------------------------------------------------------------+
 double CalculateLots(int confidence, double slPips)
 {
-   double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
-   double tickValue  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize   = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   double minLot     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double lotStep    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
+   double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSz   = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double minLot   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLotSym= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double maxLot   = MathMin(InpMaxLot, maxLotSym);
 
-   // Scale risk linearly from InpRiskPercent (conf=0) to InpMaxRiskPercent (conf=100)
-   double confFactor  = MathMax(0.0, MathMin(1.0, (double)confidence / 100.0));
-   double riskPercent = InpRiskPercent + (InpMaxRiskPercent - InpRiskPercent) * confFactor;
-   double riskAmount  = balance * riskPercent / 100.0;
+   double pipVal = 10.0; // XAUUSD: ~$10 par pip par lot standard
+   if(tickSz > 0.0 && tickVal > 0.0)
+      pipVal = (g_pipSize / tickSz) * tickVal;
 
-   // Pip value per standard lot (for XAUUSD on USD account)
-   double pipValuePerLot = 10.0; // Default: 1 pip on XAUUSD = $10 per standard lot
-   if(tickSize > 0.0 && tickValue > 0.0)
-      pipValuePerLot = (g_pipSize / tickSize) * tickValue;
+   double lots;
 
-   double lots = riskAmount / (slPips * pipValuePerLot);
+   if(InpExponentialLots)
+   {
+      // Formule exponentielle:
+      // lots = BaseLot * ExpBase^((conf - MinConf) / NormFactor)
+      // calibre pour atteindre MaxLot a conf=100
+      double minConf  = (double)InpMinConfidence;
+      double confRange = 100.0 - minConf;
+      if(confRange <= 0) confRange = 45.0;
 
-   // Normalize to lot step
+      double confAbove = MathMax(0.0, (double)confidence - minConf);
+      double exponent  = confAbove / confRange; // 0.0 a 1.0
+
+      // lots(min) = BaseLot, lots(max) = MaxLot
+      // lots = BaseLot * (MaxLot/BaseLot)^exponent
+      double ratio = InpMaxLot / InpBaseLot;
+      lots = InpBaseLot * MathPow(ratio, exponent);
+   }
+   else
+   {
+      // Lineaire base risque
+      double confFactor  = MathMax(0.0, MathMin(1.0, (double)confidence/100.0));
+      double riskPct     = 0.5 + confFactor * (InpMaxRiskPct - 0.5);
+      double riskAmt     = balance * riskPct / 100.0;
+      lots = riskAmt / (slPips * pipVal);
+   }
+
+   // Plafonner par risque max absolu (securite)
+   double maxRiskAmt = balance * InpMaxRiskPct / 100.0;
+   double maxByRisk  = maxRiskAmt / (slPips * pipVal);
+   lots = MathMin(lots, maxByRisk);
+
+   // Normaliser au step
    lots = MathFloor(lots / lotStep) * lotStep;
    lots = MathMax(minLot, MathMin(maxLot, lots));
 
    if(InpEnableLogging)
-      Print("[LOTS] conf=", confidence, "% riskPct=", DoubleToString(riskPercent, 2),
-            "% riskAmt=$", DoubleToString(riskAmount, 2), " lots=", DoubleToString(lots, 2));
+      Print("[LOTS] conf=", confidence, "% exp=", InpExponentialLots?"OUI":"NON",
+            " lots=", DoubleToString(lots,2),
+            " (min=", minLot, " max=", DoubleToString(maxLot,2), ")");
 
    return NormalizeDouble(lots, 2);
 }
 
-
 //+------------------------------------------------------------------+
-//| Manage open positions: adaptive trailing stop & break-even        |
+//| ManagePositions: trailing + break-even                             |
 //+------------------------------------------------------------------+
 void ManagePositions()
 {
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   for(int i=PositionsTotal()-1; i>=0; i--)
    {
-      if(!g_position.SelectByIndex(i))   continue;
-      if(g_position.Symbol() != _Symbol) continue;
-      if(g_position.Magic()  != InpMagicNumber) continue;
+      if(!g_position.SelectByIndex(i)) continue;
+      if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
 
-      ulong  ticket     = g_position.Ticket();
-      double openPrice  = g_position.PriceOpen();
-      double currentSL  = g_position.StopLoss();
-      double currentTP  = g_position.TakeProfit();
-      bool   modified   = false;
-      double newSL      = currentSL;
+      ulong  tkt   = g_position.Ticket();
+      double op    = g_position.PriceOpen();
+      double csl   = g_position.StopLoss();
+      double ctp   = g_position.TakeProfit();
+      double newSL = csl;
+      bool   mod   = false;
 
       if(g_position.PositionType() == POSITION_TYPE_BUY)
       {
-         double profitPips = (bid - openPrice) / g_pipSize;
-
-         // --- Break-even ---
-         if(InpUseBreakEven && profitPips >= InpBreakEvenAt)
+         double pp = (bid - op) / g_pipSize;
+         // Break-even
+         if(InpUseBreakEven && pp >= InpBreakEvenAt)
          {
-            double beSL = NormalizeDouble(openPrice + InpBreakEvenBonus * g_pipSize, _Digits);
-            if(currentSL < beSL - _Point * 5)
-            {
-               newSL = beSL;
-               modified = true;
-               if(InpEnableLogging)
-                  Print("[BE] BUY ticket=", ticket, " SL -> BE=", newSL,
-                        " profit=", DoubleToString(profitPips, 1), "p");
-            }
+            double beSL = NormalizeDouble(op + InpBreakEvenBonus*g_pipSize, _Digits);
+            if(newSL < beSL - _Point*3){ newSL=beSL; mod=true;
+               if(InpEnableLogging) Print("[BE] BUY #",tkt," SL->",newSL," pp=",DoubleToString(pp,1)); }
          }
-
-         // --- Trailing Stop ---
-         if(InpUseTrailingStop && profitPips >= InpTrailingStart)
+         // Trailing
+         if(InpUseTrailing && pp >= InpTrailingStart)
          {
-            double trailSL = NormalizeDouble(bid - InpTrailingStep * g_pipSize, _Digits);
-            if(trailSL > newSL + _Point * 5)
-            {
-               newSL = trailSL;
-               modified = true;
-               if(InpEnableLogging)
-                  Print("[TRAIL] BUY ticket=", ticket, " SL -> ", newSL,
-                        " profit=", DoubleToString(profitPips, 1), "p");
-            }
+            double trSL = NormalizeDouble(bid - InpTrailingStep*g_pipSize, _Digits);
+            if(trSL > newSL + _Point*3){ newSL=trSL; mod=true;
+               if(InpEnableLogging) Print("[TRAIL] BUY #",tkt," SL->",newSL," pp=",DoubleToString(pp,1)); }
          }
-
-         if(modified)
-            g_trade.PositionModify(ticket, newSL, currentTP);
+         if(mod) g_trade.PositionModify(tkt, newSL, ctp);
       }
-      else // POSITION_TYPE_SELL
+      else
       {
-         double profitPips = (openPrice - ask) / g_pipSize;
-
-         // --- Break-even ---
-         if(InpUseBreakEven && profitPips >= InpBreakEvenAt)
+         double pp = (op - ask) / g_pipSize;
+         // Break-even
+         if(InpUseBreakEven && pp >= InpBreakEvenAt)
          {
-            double beSL = NormalizeDouble(openPrice - InpBreakEvenBonus * g_pipSize, _Digits);
-            if(currentSL == 0 || currentSL > beSL + _Point * 5)
-            {
-               newSL = beSL;
-               modified = true;
-               if(InpEnableLogging)
-                  Print("[BE] SELL ticket=", ticket, " SL -> BE=", newSL,
-                        " profit=", DoubleToString(profitPips, 1), "p");
-            }
+            double beSL = NormalizeDouble(op - InpBreakEvenBonus*g_pipSize, _Digits);
+            if(newSL==0||newSL > beSL+_Point*3){ newSL=beSL; mod=true;
+               if(InpEnableLogging) Print("[BE] SELL #",tkt," SL->",newSL," pp=",DoubleToString(pp,1)); }
          }
-
-         // --- Trailing Stop ---
-         if(InpUseTrailingStop && profitPips >= InpTrailingStart)
+         // Trailing
+         if(InpUseTrailing && pp >= InpTrailingStart)
          {
-            double trailSL = NormalizeDouble(ask + InpTrailingStep * g_pipSize, _Digits);
-            if(currentSL == 0 || trailSL < newSL - _Point * 5)
-            {
-               newSL = trailSL;
-               modified = true;
-               if(InpEnableLogging)
-                  Print("[TRAIL] SELL ticket=", ticket, " SL -> ", newSL,
-                        " profit=", DoubleToString(profitPips, 1), "p");
-            }
+            double trSL = NormalizeDouble(ask + InpTrailingStep*g_pipSize, _Digits);
+            if(newSL==0||trSL < newSL-_Point*3){ newSL=trSL; mod=true;
+               if(InpEnableLogging) Print("[TRAIL] SELL #",tkt," SL->",newSL," pp=",DoubleToString(pp,1)); }
          }
-
-         if(modified)
-            g_trade.PositionModify(ticket, newSL, currentTP);
+         if(mod) g_trade.PositionModify(tkt, newSL, ctp);
       }
    }
 }
 
 //+------------------------------------------------------------------+
-//| Update chart dashboard with live info                              |
+//| Dashboard ULTIMATE                                                  |
 //+------------------------------------------------------------------+
 void UpdateDashboard()
 {
    if(!InpShowDashboard) return;
 
-   double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-   double floatPL = equity - balance;
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double bal   = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
+   int    nPos  = CountPositions();
+   double winR  = (g_winCount+g_lossCount)>0
+      ? (double)g_winCount/(g_winCount+g_lossCount)*100.0 : 0;
 
-   // Calculate open position PnL
-   double openPL = 0;
-   int    nPos   = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   // Calcul PnL flottant + positions
+   double floatPL = 0;
+   string posLines = "";
+   for(int i=PositionsTotal()-1; i>=0; i--)
    {
-      if(g_position.SelectByIndex(i) &&
-         g_position.Symbol() == _Symbol &&
-         g_position.Magic()  == InpMagicNumber)
-      {
-         openPL += g_position.Profit();
-         nPos++;
-      }
+      if(!g_position.SelectByIndex(i)) continue;
+      if(g_position.Symbol()!=_Symbol || g_position.Magic()!=InpMagicNumber) continue;
+      floatPL += g_position.Profit();
+      double pp = g_position.PositionType()==POSITION_TYPE_BUY
+         ? (bid - g_position.PriceOpen())/g_pipSize
+         : (g_position.PriceOpen() - bid)/g_pipSize;
+      posLines += StringFormat("  %s %.2flot @%.2f | %.1fp | $%.1f\n",
+         g_position.PositionType()==POSITION_TYPE_BUY?"BUY ":"SELL",
+         g_position.Volume(), g_position.PriceOpen(), pp, g_position.Profit());
    }
 
-   datetime nextCall = g_lastAnalysisTime + InpAnalysisInterval;
-   int secsToNext    = (int)(nextCall - TimeCurrent());
-   if(secsToNext < 0) secsToNext = 0;
+   datetime nxt     = g_lastAnalysisTime + InpAnalysisInterval;
+   int      secsNxt = (int)MathMax(0, (double)(nxt - TimeCurrent()));
 
-   string dash = "";
-   dash += "╔══════════════════════════════╗\n";
-   dash += "║   GoldAI Claude Bot v2.0     ║\n";
-   dash += "╠══════════════════════════════╣\n";
-   dash += StringFormat("║ Price    : %.2f            ║\n", bid);
-   dash += StringFormat("║ Session  : %-18s║\n", GetCurrentSession());
-   dash += StringFormat("║ Balance  : $%-17.2f║\n", balance);
-   dash += StringFormat("║ Equity   : $%-17.2f║\n", equity);
-   dash += StringFormat("║ Float PL : $%-17.2f║\n", floatPL);
-   dash += "╠══════════════════════════════╣\n";
-   dash += StringFormat("║ Last Signal : %-15s║\n",
-      g_lastAction + " (" + IntegerToString(g_lastConfidence) + "%)");
-   dash += StringFormat("║ Next Call : %-4ds                ║\n", secsToNext);
-   dash += StringFormat("║ Analyses  : %-17d║\n", g_totalAnalyses);
-   dash += StringFormat("║ Trades    : %-17d║\n", g_totalTrades);
-   dash += StringFormat("║ Positions : %d/%-15d║\n", nPos, InpMaxPositions);
-   dash += StringFormat("║ Open PnL  : $%-17.2f║\n", openPL);
+   string s = "";
+   s += "╔══════════════════════════════════╗\n";
+   s += "║   GoldAI Claude Bot v3.0 ULTIMATE║\n";
+   s += "╠══════════════════════════════════╣\n";
+   s += StringFormat("║ Prix     : %-22.2f║\n", bid);
+   s += StringFormat("║ Session  : %-22s║\n", GetCurrentSession());
+   s += "╠══════════════════════════════════╣\n";
+   s += StringFormat("║ Balance  : $%-21.2f║\n", bal);
+   s += StringFormat("║ Equity   : $%-21.2f║\n", eq);
+   s += StringFormat("║ Float PL : $%-21.2f║\n", floatPL);
+   s += StringFormat("║ Session  : $%-21.2f║\n", g_sessionPnL);
+   s += StringFormat("║ Total PnL: $%-21.2f║\n", g_totalPnL);
+   s += StringFormat("║ Max DD   : %-21s║\n", DoubleToString(g_maxDrawdown,1)+"%");
+   s += "╠══════════════════════════════════╣\n";
+   s += StringFormat("║ Signal   : %-5s conf=%-3d%%       ║\n", g_lastAction, g_lastConfidence);
+   s += StringFormat("║ Prochaine: %-3ds                   ║\n", secsNxt);
+   s += StringFormat("║ Analyses : %-22d║\n", g_totalAnalyses);
+   s += StringFormat("║ Trades   : %-22d║\n", g_totalTrades);
+   s += StringFormat("║ W/L/Rate : %d/%d/%-16s║\n",
+      g_winCount, g_lossCount, DoubleToString(winR,0)+"%");
+   s += StringFormat("║ Lots mode: %-22s║\n", InpExponentialLots?"EXPONENTIELS":"Lineaire");
+   s += "╠══════════════════════════════════╣\n";
+   s += StringFormat("║ Positions: %d/%-24d║\n", nPos, InpMaxPositions);
+   if(posLines != "")
+      s += posLines;
    if(g_lastReasoning != "")
-      dash += StringFormat("║ Reason: %-22s║\n", StringSubstr(g_lastReasoning, 0, 22));
-   dash += "╚══════════════════════════════╝";
-
-   Comment(dash);
+      s += StringFormat("║ Raison: %-26s║\n", StringSubstr(g_lastReasoning,0,26));
+   if(g_apiErrors > 0)
+      s += StringFormat("║ API ERRORS: %-21d║\n", g_apiErrors);
+   s += "╚══════════════════════════════════╝";
+   Comment(s);
 }
 
 //+------------------------------------------------------------------+
-//| Count EA positions for this symbol                                 |
+//| Suivi du drawdown                                                  |
+//+------------------------------------------------------------------+
+void TrackDrawdown()
+{
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(eq > g_peakEquity) g_peakEquity = eq;
+   if(g_peakEquity > 0)
+   {
+      double dd = (g_peakEquity - eq) / g_peakEquity * 100.0;
+      if(dd > g_maxDrawdown) g_maxDrawdown = dd;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Count positions EA                                                 |
 //+------------------------------------------------------------------+
 int CountPositions()
 {
-   int count = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      if(g_position.SelectByIndex(i) &&
-         g_position.Symbol() == _Symbol &&
-         g_position.Magic()  == InpMagicNumber)
-         count++;
-   }
-   return count;
+   int n=0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+      if(g_position.SelectByIndex(i)&&g_position.Symbol()==_Symbol&&g_position.Magic()==InpMagicNumber)
+         n++;
+   return n;
 }
 
 //+------------------------------------------------------------------+
-//| Check if current session is allowed                                |
+//| Session check                                                      |
 //+------------------------------------------------------------------+
 bool IsSessionAllowed()
 {
-   // If all disabled by user → always trade
-   if(!InpTradeSydney && !InpTradeTokyo && !InpTradeLondon && !InpTradeNewYork)
-      return true;
-
-   MqlDateTime dt;
-   TimeToStruct(TimeGMT(), dt);
-   int h = dt.hour;
-
-   // Sydney  : 22:00 - 07:00 UTC
-   if(InpTradeSydney && (h >= 22 || h < 7))    return true;
-   // Tokyo   : 00:00 - 09:00 UTC
-   if(InpTradeTokyo  && h >= 0 && h < 9)        return true;
-   // London  : 07:00 - 16:00 UTC
-   if(InpTradeLondon && h >= 7 && h < 16)       return true;
-   // New York: 13:00 - 22:00 UTC
-   if(InpTradeNewYork && h >= 13 && h < 22)     return true;
-   // Overlaps (high volatility)
-   if(InpTradeOverlap && h >= 13 && h < 16)     return true; // London/NY overlap
-
+   if(!InpTradeSydney&&!InpTradeTokyo&&!InpTradeLondon&&!InpTradeNewYork) return true;
+   MqlDateTime dt; TimeToStruct(TimeGMT(),dt); int h=dt.hour;
+   if(InpTradeSydney  && (h>=22||h<7))   return true;
+   if(InpTradeTokyo   && h>=0 && h<9)    return true;
+   if(InpTradeLondon  && h>=7 && h<16)   return true;
+   if(InpTradeNewYork && h>=13 && h<22)  return true;
    return false;
 }
 
-//+------------------------------------------------------------------+
-//| Get current session name(s)                                        |
-//+------------------------------------------------------------------+
 string GetCurrentSession()
 {
-   MqlDateTime dt;
-   TimeToStruct(TimeGMT(), dt);
-   int h = dt.hour;
-
-   string s = "";
-   if(h >= 22 || h < 7)    s += "Sydney/";
-   if(h >= 0  && h < 9)    s += "Tokyo/";
-   if(h >= 7  && h < 16)   s += "London/";
-   if(h >= 13 && h < 22)   s += "NewYork/";
-   if(s == "") s = "OffHours/";
-
-   // Remove trailing slash
-   if(StringLen(s) > 0 && StringGetCharacter(s, StringLen(s)-1) == '/')
-      s = StringSubstr(s, 0, StringLen(s)-1);
+   MqlDateTime dt; TimeToStruct(TimeGMT(),dt); int h=dt.hour;
+   string s="";
+   if(h>=22||h<7)  s+="Sydney/";
+   if(h>=0&&h<9)   s+="Tokyo/";
+   if(h>=7&&h<16)  s+="London/";
+   if(h>=13&&h<22) s+="NewYork/";
+   if(s=="") s="OffHours/";
+   if(StringGetCharacter(s,StringLen(s)-1)=='/') s=StringSubstr(s,0,StringLen(s)-1);
    return s;
 }
 
-//+------------------------------------------------------------------+
-//| Check trading permissions                                          |
-//+------------------------------------------------------------------+
 bool IsTradeAllowed()
 {
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
-   {
-      Print("[WARN] Trading disabled in terminal.");
-      return false;
-   }
-   if(!MQLInfoInteger(MQL_TRADE_ALLOWED))
-   {
-      Print("[WARN] Trading disabled for this EA (check algo trading button).");
-      return false;
-   }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)){ Print("[WARN] Trading terminal desactive."); return false; }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)){ Print("[WARN] Bouton Algo Trading desactive."); return false; }
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Extract string value from a flat JSON object                       |
+//| Helpers JSON                                                       |
 //+------------------------------------------------------------------+
-string ExtractJSONString(const string json, const string key)
+string ExtractJSONString(const string j, const string key)
 {
-   string searchKey = "\"" + key + "\":\"";
-   int start = StringFind(json, searchKey);
-   if(start < 0) return "";
-   start += StringLen(searchKey);
-   int end = start;
-   int len = StringLen(json);
-   while(end < len)
-   {
-      ushort ch   = StringGetCharacter(json, end);
-      ushort prev = end > 0 ? StringGetCharacter(json, end - 1) : 0;
-      if(ch == '"' && prev != '\\') break;
-      end++;
-   }
-   return StringSubstr(json, start, end - start);
+   string sk="\""+key+"\":\"";
+   int s=StringFind(j,sk); if(s<0) return "";
+   s+=StringLen(sk);
+   int e=s, l=StringLen(j);
+   while(e<l){ushort c=StringGetCharacter(j,e);ushort p=e>0?StringGetCharacter(j,e-1):0;if(c=='"'&&p!='\\')break;e++;}
+   return StringSubstr(j,s,e-s);
+}
+
+string ExtractJSONNumber(const string j, const string key)
+{
+   string sk="\""+key+"\":";
+   int s=StringFind(j,sk); if(s<0) return "0";
+   s+=StringLen(sk);
+   int l=StringLen(j);
+   while(s<l&&StringGetCharacter(j,s)==' ') s++;
+   int e=s;
+   while(e<l){ushort c=StringGetCharacter(j,e);if((c>='0'&&c<='9')||c=='.'||c=='-')e++;else break;}
+   return StringSubstr(j,s,e-s);
+}
+
+string EscapeJSON(string t)
+{
+   StringReplace(t,"\\","\\\\");StringReplace(t,"\"","\\\"");
+   StringReplace(t,"\n","\\n");StringReplace(t,"\r","\\r");StringReplace(t,"\t","\\t");
+   return t;
+}
+
+string UnescapeJSON(string t)
+{
+   StringReplace(t,"\\n","\n");StringReplace(t,"\\r","\r");StringReplace(t,"\\t","\t");
+   StringReplace(t,"\\\"","\"");StringReplace(t,"\\\\","\\");
+   return t;
 }
 
 //+------------------------------------------------------------------+
-//| Extract numeric value from a flat JSON object                      |
-//+------------------------------------------------------------------+
-string ExtractJSONNumber(const string json, const string key)
-{
-   string searchKey = "\"" + key + "\":";
-   int start = StringFind(json, searchKey);
-   if(start < 0) return "0";
-   start += StringLen(searchKey);
-   int len = StringLen(json);
-   // Skip whitespace
-   while(start < len && StringGetCharacter(json, start) == ' ') start++;
-   int end = start;
-   while(end < len)
-   {
-      ushort ch = StringGetCharacter(json, end);
-      if((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') end++;
-      else break;
-   }
-   return StringSubstr(json, start, end - start);
-}
-
-//+------------------------------------------------------------------+
-//| Escape string for JSON payload                                     |
-//+------------------------------------------------------------------+
-string EscapeJSON(string text)
-{
-   StringReplace(text, "\\", "\\\\");
-   StringReplace(text, "\"", "\\\"");
-   StringReplace(text, "\n", "\\n");
-   StringReplace(text, "\r", "\\r");
-   StringReplace(text, "\t", "\\t");
-   return text;
-}
-
-//+------------------------------------------------------------------+
-//| Unescape JSON encoded string                                       |
-//+------------------------------------------------------------------+
-string UnescapeJSON(string text)
-{
-   StringReplace(text, "\\n",  "\n");
-   StringReplace(text, "\\r",  "\r");
-   StringReplace(text, "\\t",  "\t");
-   StringReplace(text, "\\\"", "\"");
-   StringReplace(text, "\\\\", "\\");
-   return text;
-}
-
-//+------------------------------------------------------------------+
-//| Trade transaction callback (log closed trade PnL)                  |
+//| Callback trades fermes                                             |
 //+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
-                        const MqlTradeRequest &request,
-                        const MqlTradeResult  &result)
+                        const MqlTradeRequest &req,
+                        const MqlTradeResult  &res)
 {
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
    {
-      ulong dealTicket = trans.deal;
-      if(dealTicket > 0 && HistoryDealSelect(dealTicket))
+      ulong dk = trans.deal;
+      if(dk>0 && HistoryDealSelect(dk))
       {
-         long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-         if(magic == InpMagicNumber)
+         if(HistoryDealGetInteger(dk, DEAL_MAGIC)==InpMagicNumber)
          {
-            double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
-            double comm   = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
-            double swap   = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+            double profit = HistoryDealGetDouble(dk, DEAL_PROFIT);
+            double comm   = HistoryDealGetDouble(dk, DEAL_COMMISSION);
+            double swap   = HistoryDealGetDouble(dk, DEAL_SWAP);
             double net    = profit + comm + swap;
             if(profit != 0.0)
             {
-               g_totalPnL += net;
-               Print("[CLOSED] Profit=", DoubleToString(profit, 2),
-                     " Comm=", DoubleToString(comm, 2),
-                     " Net=", DoubleToString(net, 2),
-                     " | TotalPnL=$", DoubleToString(g_totalPnL, 2));
+               g_totalPnL   += net;
+               g_sessionPnL += net;
+               if(net > 0) g_winCount++;
+               else         g_lossCount++;
+               Print("[CLOSED] Profit=", DoubleToString(profit,2),
+                     " Net=", DoubleToString(net,2),
+                     " | Total=$", DoubleToString(g_totalPnL,2),
+                     " | W=", g_winCount, " L=", g_lossCount);
             }
          }
       }
