@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMEGA GOLD BRAIN v3 — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #050810;
+    --bg2:      #090d1a;
+    --bg3:      #0d1225;
+    --border:   #1a2444;
+    --gold:     #f5c842;
+    --gold2:    #e8a800;
+    --green:    #00e5a0;
+    --red:      #ff4060;
+    --blue:     #4090ff;
+    --purple:   #9060ff;
+    --text:     #c8d4f0;
+    --muted:    #5a6a8a;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Rajdhani', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanlines overlay */
+  body::before {
+    content:'';
+    position:fixed; top:0; left:0; right:0; bottom:0;
+    background: repeating-linear-gradient(0deg,
+      transparent, transparent 2px,
+      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px;
+    background: linear-gradient(90deg, #0d1225, #050810);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top:0; z-index:100;
+  }
+  .logo {
+    font-family: var(--mono); font-size: 18px; letter-spacing: 3px;
+    color: var(--gold);
+    text-shadow: 0 0 20px rgba(245,200,66,0.5);
+  }
+  .logo span { color: var(--muted); font-size: 11px; }
+  .status-bar { display:flex; gap:20px; align-items:center; }
+  .status-dot {
+    width:8px; height:8px; border-radius:50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .status-dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); animation:none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  #clock {
+    font-family: var(--mono); font-size: 13px; color: var(--gold);
+  }
+
+  /* ─── MAIN GRID ─── */
+  .grid {
+    display: grid;
+    grid-template-columns: 340px 1fr 320px;
+    grid-template-rows: auto auto auto;
+    gap: 12px;
+    padding: 12px;
+    max-width: 1800px;
+    margin: 0 auto;
+  }
+
+  /* ─── CARDS ─── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content:'';
+    position:absolute; top:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    opacity: 0.3;
+  }
+  .card.accent-green::before { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+  .card.accent-red::before   { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+  .card.accent-blue::before  { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
+
+  .card-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title::after {
+    content:''; flex:1; height:1px; background: var(--border);
+  }
+
+  /* ─── PRICE HERO ─── */
+  .price-hero {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #090d1a, #0d1520);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .price-main {
+    font-family: var(--mono); font-size: 48px; font-weight: 700;
+    color: var(--gold);
+    text-shadow: 0 0 30px rgba(245,200,66,0.3);
+    letter-spacing: -1px;
+    transition: all 0.3s;
+  }
+  .price-symbol { font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+  .price-change { font-family: var(--mono); font-size: 15px; }
+
+  /* ─── CONVICTION METER ─── */
+  .conviction-wrap { display:flex; align-items:center; gap:12px; flex-direction:column; }
+  .conviction-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .conviction-value {
+    font-family: var(--mono); font-size: 32px; font-weight: 700;
+    transition: all 0.5s;
+  }
+  .gauge-bar {
+    width: 160px; height: 8px;
+    background: var(--bg3); border-radius: 4px; overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--red), var(--gold), var(--green));
+    transition: width 0.8s ease;
+  }
+
+  /* ─── AGENT SCORES ─── */
+  .agents-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .agent-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 3px; padding: 10px;
+  }
+  .agent-name { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing:2px; margin-bottom:6px; }
+  .agent-bias {
+    font-size: 18px; font-weight: 700;
+    transition: color 0.3s;
+  }
+  .agent-score { font-family: var(--mono); font-size: 12px; margin-top: 3px; }
+  .score-bar { height: 4px; border-radius: 2px; background: var(--bg); margin-top: 6px; overflow:hidden; }
+  .score-fill { height:100%; border-radius:2px; transition: width 0.8s ease, background 0.3s; }
+
+  /* ─── CONFLUENCE ─── */
+  .confluence-display {
+    text-align: center; padding: 10px;
+  }
+  .confluence-main {
+    font-family: var(--mono); font-size: 20px; font-weight: 700;
+    letter-spacing: 1px; transition: color 0.5s;
+  }
+  .tf-row { display:flex; justify-content:center; gap:16px; margin-top:8px; }
+  .tf-item { text-align:center; }
+  .tf-label { font-family: var(--mono); font-size: 9px; color: var(--muted); }
+  .tf-trend { font-size: 18px; margin-top: 2px; }
+  .tf-rsi { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+  /* ─── RISK MODE ─── */
+  .risk-badge {
+    display: inline-block; padding: 6px 14px; border-radius: 2px;
+    font-family: var(--mono); font-size: 13px; letter-spacing: 2px;
+    font-weight: 700; margin-bottom: 8px;
+    transition: all 0.3s;
+  }
+  .risk-NORMAL    { background: rgba(0,229,160,0.15); color: var(--green); border: 1px solid rgba(0,229,160,0.3); }
+  .risk-REDUCED   { background: rgba(245,200,66,0.15); color: var(--gold); border: 1px solid rgba(245,200,66,0.3); }
+  .risk-NO_TRADE  { background: rgba(255,64,96,0.15); color: var(--red); border: 1px solid rgba(255,64,96,0.3); }
+  .risk-POST_NEWS { background: rgba(64,144,255,0.15); color: var(--blue); border: 1px solid rgba(64,144,255,0.3); }
+  .risk-KILL_SWITCH { background: rgba(255,64,96,0.4); color: #fff; border: 1px solid var(--red); animation: blink 0.5s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ─── POSITIONS ─── */
+  .positions-table { width:100%; border-collapse:collapse; font-family: var(--mono); font-size: 11px; }
+  .positions-table th {
+    text-align:left; padding: 5px 6px;
+    color: var(--muted); font-size: 9px; letter-spacing:1px;
+    border-bottom: 1px solid var(--border);
+  }
+  .positions-table td { padding: 6px 6px; border-bottom: 1px solid rgba(26,36,68,0.5); }
+  .pos-buy  { color: var(--green); }
+  .pos-sell { color: var(--red); }
+  .profit-pos { color: var(--green); }
+  .profit-neg { color: var(--red); }
+  .empty-state { text-align:center; color: var(--muted); padding: 20px; font-size:12px; }
+
+  /* ─── PNL STATS ─── */
+  .stats-row { display:grid; grid-template-columns: repeat(3,1fr); gap:8px; margin-bottom:10px; }
+  .stat-item { background:var(--bg3); border:1px solid var(--border); border-radius:3px; padding:10px; text-align:center; }
+  .stat-value { font-family:var(--mono); font-size:20px; font-weight:700; transition:color 0.3s; }
+  .stat-label { font-size:9px; color:var(--muted); letter-spacing:1px; margin-top:3px; }
+
+  /* ─── LOG TERMINAL ─── */
+  .terminal {
+    background: var(--bg);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 10px; font-family: var(--mono); font-size: 11px;
+    height: 220px; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .log-line { margin-bottom: 3px; line-height: 1.4; }
+  .log-INFO  { color: var(--text); }
+  .log-EXEC  { color: var(--gold); }
+  .log-BUY   { color: var(--green); }
+  .log-SELL  { color: var(--red); }
+  .log-WARN  { color: #ff9900; }
+  .log-KILL  { color: var(--red); font-weight:700; }
+  .log-time  { color: var(--muted); }
+
+  /* ─── CALENDAR ─── */
+  .cal-event {
+    display:flex; align-items:flex-start; gap:8px;
+    padding: 6px 0; border-bottom: 1px solid rgba(26,36,68,0.5);
+    font-size: 12px;
+  }
+  .cal-event:last-child { border-bottom:none; }
+  .cal-time { font-family:var(--mono); font-size:10px; color:var(--muted); min-width:50px; }
+  .cal-impact { font-size:10px; min-width:12px; }
+  .cal-title { flex:1; }
+  .cal-soon { color: var(--gold); }
+  .cal-imminent { color: var(--red); animation: pulse 1s infinite; }
+
+  /* ─── BACKTEST ─── */
+  .backtest-grid { display:grid; grid-template-columns: repeat(4,1fr); gap:8px; }
+  .bt-item { text-align:center; background:var(--bg3); border:1px solid var(--border); border-radius:3px; padding:8px; }
+  .bt-val { font-family:var(--mono); font-size:16px; font-weight:700; }
+  .bt-lbl { font-size:9px; color:var(--muted); margin-top:2px; }
+
+  /* ─── REASONING ─── */
+  .reasoning-box {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 3px; padding: 10px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--text); line-height: 1.6;
+    min-height: 50px;
+  }
+  #last-action-badge {
+    display:inline-block; padding: 3px 10px; border-radius:2px;
+    font-family:var(--mono); font-size:12px; font-weight:700;
+    margin-bottom:8px;
+  }
+
+  /* ─── CONNECTION ─── */
+  .conn-notice {
+    grid-column: 1 / -1;
+    text-align:center; padding: 8px;
+    font-family: var(--mono); font-size:11px; color: var(--muted);
+    background: rgba(26,36,68,0.3); border-radius:3px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="logo">OMEGA GOLD BRAIN <span>v3.0</span></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:var(--mono)">XAUUSD ∙ MULTI-AGENT ∙ LIVE</div>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="conn-dot"></div>
+    <span id="conn-text" style="font-family:var(--mono);font-size:11px;color:var(--muted)">CONNEXION...</span>
+    <div id="clock" style="font-family:var(--mono);font-size:14px;color:var(--gold)">--:--:--</div>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="cycle-count">CYCLE #0</span>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- PRICE HERO -->
+  <div class="price-hero">
+    <div>
+      <div class="price-symbol">XAU/USD</div>
+      <div class="price-main" id="price-main">-.--</div>
+    </div>
+    <div class="conviction-wrap">
+      <div class="conviction-label">CONVICTION GLOBALE</div>
+      <div class="conviction-value" id="conviction-val" style="color:var(--gold)">--%</div>
+      <div class="gauge-bar"><div class="gauge-fill" id="gauge-fill" style="width:0%"></div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+      <div>
+        <div class="price-symbol" style="font-size:9px">DERNIER SIGNAL</div>
+        <div id="last-action-badge" style="background:rgba(245,200,66,0.1);color:var(--gold);border:1px solid rgba(245,200,66,0.3)">NONE</div>
+      </div>
+      <div class="reasoning-box" style="max-width:300px;min-height:30px" id="reasoning-box">—</div>
+    </div>
+    <div style="text-align:right">
+      <div class="price-symbol">PNL JOURNALIER</div>
+      <div class="price-main" id="daily-pnl" style="font-size:28px">+0.00$</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="trades-today">0 trades</div>
+    </div>
+  </div>
+
+  <!-- COL 1 : Agents + Confluence -->
+  <div style="display:flex;flex-direction:column;gap:12px">
+
+    <div class="card">
+      <div class="card-title">Agents Spécialisés</div>
+      <div class="agents-grid">
+        <!-- Agent Technique -->
+        <div class="agent-card">
+          <div class="agent-name">TECHNIQUE</div>
+          <div class="agent-bias" id="tech-bias">—</div>
+          <div class="agent-score" id="tech-score">score: —</div>
+          <div class="score-bar"><div class="score-fill" id="tech-bar" style="width:50%;background:var(--muted)"></div></div>
+        </div>
+        <!-- Agent News -->
+        <div class="agent-card">
+          <div class="agent-name">NEWS</div>
+          <div class="agent-bias" id="news-bias">—</div>
+          <div class="agent-score" id="news-score">score: —</div>
+          <div class="score-bar"><div class="score-fill" id="news-bar" style="width:50%;background:var(--muted)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Confluence Multi-TF</div>
+      <div class="confluence-display">
+        <div class="confluence-main" id="confluence-main">—</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px" id="confluence-score">score: —</div>
+        <div class="tf-row">
+          <div class="tf-item">
+            <div class="tf-label">M1</div>
+            <div class="tf-trend" id="tf-m1">—</div>
+            <div class="tf-rsi" id="rsi-m1">—</div>
+          </div>
+          <div class="tf-item">
+            <div class="tf-label">M5</div>
+            <div class="tf-trend" id="tf-m5">—</div>
+            <div class="tf-rsi" id="rsi-m5">—</div>
+          </div>
+          <div class="tf-item">
+            <div class="tf-label">H1</div>
+            <div class="tf-trend" id="tf-h1">—</div>
+            <div class="tf-rsi" id="rsi-h1">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Risk Manager</div>
+      <div id="risk-badge" class="risk-badge risk-NORMAL">NORMAL</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:6px" id="risk-reason">—</div>
+      <div class="stats-row" style="margin-top:10px">
+        <div class="stat-item">
+          <div class="stat-value" id="open-lot">0.00</div>
+          <div class="stat-label">LOT EXPO</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="pos-count">0</div>
+          <div class="stat-label">POSITIONS</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="max-lot">0.30</div>
+          <div class="stat-label">MAX LOT</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COL 2 : Positions + Log -->
+  <div style="display:flex;flex-direction:column;gap:12px">
+
+    <div class="card accent-green">
+      <div class="card-title">Positions Ouvertes</div>
+      <div id="positions-wrap">
+        <div class="empty-state">Aucune position ouverte</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Statistiques Journalières</div>
+      <div class="stats-row">
+        <div class="stat-item">
+          <div class="stat-value" id="stat-trades">0</div>
+          <div class="stat-label">TRADES</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-pnl">0.00$</div>
+          <div class="stat-label">PNL JOUR</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-wins">0</div>
+          <div class="stat-label">WINS</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Terminal — Décisions IA</div>
+      <div class="terminal" id="terminal"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Backtest 7 Jours M5</div>
+      <div class="backtest-grid" id="backtest-grid">
+        <div class="bt-item"><div class="bt-val" id="bt-trades">—</div><div class="bt-lbl">TRADES</div></div>
+        <div class="bt-item"><div class="bt-val" id="bt-wr">—</div><div class="bt-lbl">WIN RATE</div></div>
+        <div class="bt-item"><div class="bt-val" id="bt-pnl">—</div><div class="bt-lbl">PNL PIPS</div></div>
+        <div class="bt-item"><div class="bt-val" id="bt-pf">—</div><div class="bt-lbl">PROFIT FACTOR</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COL 3 : Calendrier -->
+  <div style="display:flex;flex-direction:column;gap:12px">
+
+    <div class="card accent-blue">
+      <div class="card-title">Calendrier Économique</div>
+      <div id="calendar-wrap">
+        <div class="empty-state">Chargement...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Indicateurs M5</div>
+      <div style="font-family:var(--mono);font-size:12px;display:grid;gap:6px" id="indicators-grid">
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">RSI(14)</span><span id="ind-rsi">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">EMA20</span><span id="ind-ema20">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">EMA50</span><span id="ind-ema50">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">EMA200</span><span id="ind-ema200">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">ATR(14)</span><span id="ind-atr">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">MACD</span><span id="ind-macd">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn-notice" id="conn-notice">
+      🔌 Dashboard connecté via ZMQ WebSocket proxy<br>
+      <span style="color:var(--muted)">ws://localhost:5558 — En attente de données...</span>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   OMEGA DASHBOARD — Logique de mise à jour
+   Connexion ZMQ via WebSocket proxy (voir dashboard_server.py)
+   ═══════════════════════════════════════════════════════ */
+
+const WSURL = 'ws://localhost:5558';
+let ws, reconnectTimer, lastState = null;
+const logs = [];
+const MAX_LOGS = 80;
+
+// ── Horloge ──────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('fr-FR');
+}, 1000);
+
+// ── Connexion WebSocket ───────────────────────────────
+function connect() {
+  ws = new WebSocket(WSURL);
+  ws.onopen = () => {
+    document.getElementById('conn-dot').classList.remove('off');
+    document.getElementById('conn-text').textContent = 'CONNECTÉ';
+    document.getElementById('conn-notice').innerHTML =
+      '✅ WebSocket connecté — Données live actives';
+    addLog('INFO', 'Dashboard connecté au brain v3');
+  };
+  ws.onmessage = (e) => {
+    try {
+      const state = JSON.parse(e.data);
+      lastState = state;
+      updateDashboard(state);
+    } catch(err) { console.error(err); }
+  };
+  ws.onclose = () => {
+    document.getElementById('conn-dot').classList.add('off');
+    document.getElementById('conn-text').textContent = 'DÉCONNECTÉ';
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+connect();
+
+// ── Mise à jour complète ─────────────────────────────
+function updateDashboard(s) {
+  // Prix
+  const priceEl = document.getElementById('price-main');
+  const prevPrice = parseFloat(priceEl.textContent) || 0;
+  priceEl.textContent = parseFloat(s.price).toFixed(2);
+  priceEl.style.color = s.price > prevPrice ? 'var(--green)' : (s.price < prevPrice ? 'var(--red)' : 'var(--gold)');
+  setTimeout(() => priceEl.style.color = 'var(--gold)', 1000);
+
+  // Cycle
+  document.getElementById('cycle-count').textContent = `CYCLE #${s.cycle}`;
+
+  // Conviction
+  const conv = s.conviction || 0;
+  document.getElementById('conviction-val').textContent = conv + '%';
+  document.getElementById('conviction-val').style.color =
+    conv >= 70 ? 'var(--green)' : conv >= 40 ? 'var(--gold)' : 'var(--red)';
+  document.getElementById('gauge-fill').style.width = conv + '%';
+
+  // Dernier signal
+  const ab = document.getElementById('last-action-badge');
+  ab.textContent = s.last_action || 'NONE';
+  const actionColors = {BUY:'green',SELL:'red',CLOSE_ALL:'red',CLOSE_PARTIAL:'gold',NONE:'muted',BREAKEVEN:'blue'};
+  const ac = actionColors[s.last_action] || 'muted';
+  const colorMap = {green:'var(--green)',red:'var(--red)',gold:'var(--gold)',blue:'var(--blue)',muted:'var(--muted)'};
+  ab.style.color = colorMap[ac];
+  ab.style.borderColor = colorMap[ac];
+  ab.style.background = colorMap[ac].replace(')', ',0.1)').replace('var(', 'rgba(').replace('#','');
+
+  // Reasoning
+  document.getElementById('reasoning-box').textContent = s.reasoning || '—';
+
+  // PnL journalier
+  const pnlEl = document.getElementById('daily-pnl');
+  const pnl = s.daily_pnl || 0;
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '$';
+  pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('trades-today').textContent = (s.trades_today || 0) + ' trades aujourd\'hui';
+
+  // Agents
+  updateAgent('tech', s.tech_bias, s.tech_score);
+  updateAgent('news', s.news_bias, s.news_score);
+
+  // Confluence
+  const confEl = document.getElementById('confluence-main');
+  confEl.textContent = s.confluence || '—';
+  const confColors = {STRONG_BULL:'var(--green)',BULL:'var(--green)',NEUTRAL:'var(--gold)',BEAR:'var(--red)',STRONG_BEAR:'var(--red)'};
+  confEl.style.color = confColors[s.confluence] || 'var(--muted)';
+  document.getElementById('confluence-score').textContent = 'score: ' + (s.confluence_score || 0) + '/100';
+
+  // Tendances TF
+  const trendIcons = {UP:'↑', DOWN:'↓', SIDEWAYS:'→', 'N/A':'—'};
+  const trendColors = {UP:'var(--green)', DOWN:'var(--red)', SIDEWAYS:'var(--gold)', 'N/A':'var(--muted)'};
+  ['m1','m5','h1'].forEach(tf => {
+    const trend = s[tf + '_trend'] || 'N/A';
+    const el = document.getElementById('tf-' + tf);
+    el.textContent = trendIcons[trend] || '—';
+    el.style.color = trendColors[trend] || 'var(--muted)';
+  });
+  document.getElementById('rsi-m5').textContent = 'RSI ' + (s.rsi_m5 || 0).toFixed(1);
+
+  // Risk
+  const rm = s.risk_mode || 'NORMAL';
+  const riskBadge = document.getElementById('risk-badge');
+  riskBadge.textContent = rm;
+  riskBadge.className = 'risk-badge risk-' + rm;
+  document.getElementById('risk-reason').textContent = '';
+
+  // Positions
+  updatePositions(s.positions || []);
+  document.getElementById('open-lot').textContent =
+    (s.positions || []).reduce((a,p) => a + p.lot, 0).toFixed(2);
+  document.getElementById('pos-count').textContent = (s.positions || []).length;
+
+  // Stats
+  document.getElementById('stat-trades').textContent = s.trades_today || 0;
+  const pnlStat = document.getElementById('stat-pnl');
+  pnlStat.textContent = (pnl >= 0 ? '+' : '') + (pnl).toFixed(2) + '$';
+  pnlStat.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Calendrier
+  if (s.calendar_summary) updateCalendar(s.calendar_summary);
+
+  // Backtest
+  if (s.backtest && s.backtest !== 'Backtest non encore exécuté.') {
+    const m = s.backtest.match(/(\d+) trades.*?WR:([\d.]+)%.*?PnL:([+-]?[\d.]+)pips.*?PF:([\d.]+)/);
+    if (m) {
+      document.getElementById('bt-trades').textContent = m[1];
+      document.getElementById('bt-wr').textContent = m[2] + '%';
+      document.getElementById('bt-wr').style.color = parseFloat(m[2]) > 50 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('bt-pnl').textContent = parseFloat(m[3]) > 0 ? '+' + m[3] : m[3];
+      document.getElementById('bt-pnl').style.color = parseFloat(m[3]) > 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('bt-pf').textContent = m[4];
+      document.getElementById('bt-pf').style.color = parseFloat(m[4]) > 1 ? 'var(--green)' : 'var(--red)';
+    }
+  }
+
+  // Log terminal
+  addLog(s.last_action === 'NONE' ? 'INFO' : s.last_action,
+    `C#${s.cycle} | ${s.confluence} | Conv:${conv}% | ${s.last_action} | ${(s.reasoning||'').substring(0,60)}`);
+}
+
+function updateAgent(prefix, bias, score) {
+  const biasEl  = document.getElementById(prefix + '-bias');
+  const scoreEl = document.getElementById(prefix + '-score');
+  const barEl   = document.getElementById(prefix + '-bar');
+  biasEl.textContent  = bias || '—';
+  scoreEl.textContent = 'score: ' + (score || 0);
+  const biasColors = {BULL:'var(--green)', BEAR:'var(--red)', NEUTRAL:'var(--gold)'};
+  biasEl.style.color = biasColors[bias] || 'var(--muted)';
+  const pct = ((score || 0) + 100) / 2;
+  barEl.style.width = pct + '%';
+  barEl.style.background = score > 20 ? 'var(--green)' : score < -20 ? 'var(--red)' : 'var(--gold)';
+}
+
+function updatePositions(positions) {
+  const wrap = document.getElementById('positions-wrap');
+  if (!positions.length) {
+    wrap.innerHTML = '<div class="empty-state">Aucune position ouverte</div>';
+    return;
+  }
+  let html = `<table class="positions-table">
+    <tr><th>TICKET</th><th>TYPE</th><th>LOT</th><th>OPEN</th><th>SL</th><th>TP</th><th>PNL</th><th>PIPS</th></tr>`;
+  positions.forEach(p => {
+    const pnlClass = p.profit >= 0 ? 'profit-pos' : 'profit-neg';
+    const typeClass = p.type === 'BUY' ? 'pos-buy' : 'pos-sell';
+    html += `<tr>
+      <td>${p.ticket}</td>
+      <td class="${typeClass}">${p.type}</td>
+      <td>${p.lot}</td>
+      <td>${(p.open_price||0).toFixed(2)}</td>
+      <td>${(p.current_sl||0).toFixed(2)}</td>
+      <td>${(p.current_tp||0).toFixed(2)}</td>
+      <td class="${pnlClass}">${(p.profit||0) >= 0 ? '+' : ''}${(p.profit||0).toFixed(2)}$</td>
+      <td class="${pnlClass}">${(p.profit_pips||0) >= 0 ? '+' : ''}${(p.profit_pips||0).toFixed(1)}</td>
+    </tr>`;
+  });
+  html += '</table>';
+  wrap.innerHTML = html;
+}
+
+function updateCalendar(summary) {
+  const lines = summary.split('\n').filter(l => l.includes('UTC') || l.includes('⏰') || l.includes('⚡'));
+  if (!lines.length) return;
+  let html = '';
+  lines.forEach(line => {
+    const isHigh    = line.includes('🔴');
+    const isMedium  = line.includes('🟡');
+    const isPost    = line.includes('⚡');
+    const isNext    = line.includes('⏰');
+    const cls = isPost ? 'cal-imminent' : isNext ? 'cal-soon' : '';
+    html += `<div class="cal-event ${cls}">
+      <span class="cal-impact">${isHigh?'🔴':isMedium?'🟡':isPost?'⚡':isNext?'⏰':'⚪'}</span>
+      <span class="cal-title" style="font-size:11px">${line.replace(/[🔴🟡⚪⚡⏰]/g,'').trim()}</span>
+    </div>`;
+  });
+  document.getElementById('calendar-wrap').innerHTML = html || '<div class="empty-state">Pas d\'événements imminents</div>';
+}
+
+function addLog(type, msg) {
+  const time = new Date().toLocaleTimeString('fr-FR');
+  const cls = {BUY:'log-BUY',SELL:'log-SELL',BREAKEVEN:'log-EXEC',
+                TRAIL:'log-EXEC',CLOSE_ALL:'log-SELL',CLOSE_PARTIAL:'log-EXEC',
+                INFO:'log-INFO',WARN:'log-WARN',KILL_SWITCH:'log-KILL'}[type] || 'log-INFO';
+  logs.unshift(`<div class="log-line ${cls}"><span class="log-time">${time}</span> ${msg}</div>`);
+  if (logs.length > MAX_LOGS) logs.pop();
+  document.getElementById('terminal').innerHTML = logs.join('');
+}
+
+// Demo si pas connecté après 5s
+setTimeout(() => {
+  if (!lastState) {
+    addLog('WARN', 'Pas de connexion ZMQ — Mode démo');
+    addLog('INFO', 'Démarrer dashboard_server.py pour les données live');
+  }
+}, 5000);
+</script>
+</body>
+</html>
