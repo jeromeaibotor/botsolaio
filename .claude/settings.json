@@ -1,5 +1,17 @@
 {
+  "extraKnownMarketplaces": {
+    "ruflo": {
+      "source": {
+        "source": "github",
+        "repo": "ruvnet/ruflo"
+      }
+    }
+  },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "ruflo-core@ruflo": true,
+    "ruflo-swarm@ruflo": true,
+    "ruflo-autopilot@ruflo": true,
+    "ruflo-federation@ruflo": true
   }
 }
